@@ -377,10 +377,10 @@ export async function home() {
           // 宿主的 Mode 卡片只认 imageUrl，playlist id 它不一定去查封面，
           // 所以这里把歌单封面一起带上。
           let cover = "";
-          try {
-            const j = await api("/api/v3/playlist/detail", { id: listId, n: 0 });
-            cover = j.playlist?.coverImgUrl || j.playlist?.pictureUrl || "";
-          } catch (_) { /* 拿不到封面就不带 imageUrl */ }
+            // playlist/detail 的 coverImgUrl 可能 404（CDN 路径失效），
+            // 改用歌单前几首歌的专辑封面，必然有效。
+            const d = await api("/api/v6/playlist/detail", { id: listId, n: 3 });
+            cover = d.playlist?.tracks?.[0]?.al?.picUrl || d.playlist?.coverImgUrl || "";
           modes.push({ title: t("我喜欢的音乐"), subtitle: t("从你收藏的歌曲继续"), playlist: listId, ...(cover ? { imageUrl: cover } : {}) });
         }
       } catch (_) { /* 取不到就不放这一项 */ }
