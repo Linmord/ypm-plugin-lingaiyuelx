@@ -27,14 +27,15 @@ type Hooks struct {
 
 // Runtime 持有 QuickJS 上下文。
 type Runtime struct {
-	work    *worker
-	plugin  string
-	dataDir string
-	store   *hostjs.Store
-	hooks   Hooks
-	mu      sync.Mutex
-	closed  bool
-	st      *state
+	work      *worker
+	plugin    string
+	dataDir   string
+	store     *hostjs.Store
+	hooks     Hooks
+	mu        sync.Mutex
+	closed    bool
+	loggingIn string // 正在登录的音源，用于标注 signInPrompt 的归属
+	st        *state
 }
 
 // state 是只属于 worker 线程的运行时状态。
@@ -62,6 +63,7 @@ func New(pluginDir, dataDir string, hooks Hooks) (*Runtime, error) {
 		return nil, fmt.Errorf("读取 storage.json: %w", err)
 	}
 
+	SetFetchLogger(hooks.OnLog)
 	r := &Runtime{
 		work:    newWorker(),
 		plugin:  pluginDir,
@@ -93,7 +95,12 @@ func (r *Runtime) ensure() (*state, error) {
 		GetSettings: r.hooks.GetSettings,
 		OnPrompt: func(qr, text string) {
 			if r.hooks.OnPrompt != nil {
-				r.hooks.OnPrompt("", qr, text)
+				// 用「当前正在登录的音源」标注二维码归属。
+				// 不能靠 HTTP 层的 s.active：那是共享状态，两个音源同时登录会串。
+				r.mu.Lock()
+				who := r.loggingIn
+				r.mu.Unlock()
+				r.hooks.OnPrompt(who, qr, text)
 			}
 		},
 		OnLog: r.hooks.OnLog,

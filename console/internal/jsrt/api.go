@@ -28,6 +28,11 @@ func (r *Runtime) Account(provider string) (map[string]any, error) {
 
 // SignIn 启动扫码登录。插件里的 signIn 是长任务，这里放 goroutine 跑。
 func (r *Runtime) SignIn(provider string) error {
+	// 记下正在登录哪个音源，signInPrompt 回调靠它归属二维码
+	r.mu.Lock()
+	r.loggingIn = provider
+	r.mu.Unlock()
+
 	mod := moduleOf(provider)
 	// 先确认模块能加载，加载失败立刻报错给前端
 	if _, err := r.work.do(func() (any, error) {
@@ -40,15 +45,16 @@ func (r *Runtime) SignIn(provider string) error {
 		return err
 	}
 
-	go func() {
+	// 扫码登录是长任务（要等用户扫，最长 8 分钟），
+	// 不能用 callAsync 那种「等 Promise 落定」的方式，必须立刻返回。
+	startErr := r.startAsync(mod, "signIn", func(raw json.RawMessage, err error) {
 		defer func() {
-			if rec := recover(); rec != nil {
-				if r.hooks.OnStatus != nil {
-					r.hooks.OnStatus(provider, "error", fmt.Sprint(rec))
-				}
+			r.mu.Lock()
+			if r.loggingIn == provider {
+				r.loggingIn = ""
 			}
+			r.mu.Unlock()
 		}()
-		raw, err := r.callAsync(mod, "signIn")
 		if err != nil {
 			if r.hooks.OnStatus != nil {
 				r.hooks.OnStatus(provider, "error", err.Error())
@@ -64,7 +70,13 @@ func (r *Runtime) SignIn(provider string) error {
 		if r.hooks.OnStatus != nil {
 			r.hooks.OnStatus(provider, status, message)
 		}
-	}()
+	})
+	if startErr != nil {
+		r.mu.Lock()
+		r.loggingIn = ""
+		r.mu.Unlock()
+		return startErr
+	}
 	return nil
 }
 

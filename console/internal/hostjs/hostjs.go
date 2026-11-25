@@ -298,8 +298,9 @@ func Install(ctx *quickjs.Context, opt Options) error {
 		if len(args) < 4 || opt.Fetch == nil {
 			return c.String(JSONOf(map[string]any{"ok": false, "error": "no fetch"}))
 		}
-		method := args[0].String()
-		url := args[1].String()
+		// JS 垫片的调用顺序是 (url, method, headers, body)，别按 Go 的习惯反过来
+		url := args[0].String()
+		method := args[1].String()
 		headersJSON := args[2].String()
 		body := args[3].String()
 		headers := map[string]string{}
@@ -309,24 +310,72 @@ func Install(ctx *quickjs.Context, opt Options) error {
 	}))
 
 	// 用 JS 包一层，做出插件期待的 Response 形状
+	//
+	// 插件用到的东西：URLSearchParams、AbortSignal.timeout、headers.getSetCookie、
+	// response.text/json/ok/status。这些宿主里都有，QuickJS 没有，得自己补。
 	shim := `
+// ---- URLSearchParams 垫片 ----
+if (typeof globalThis.URLSearchParams === "undefined") {
+  globalThis.URLSearchParams = class URLSearchParams {
+    constructor(init) {
+      this._pairs = [];
+      if (typeof init === "string") {
+        if (init) init.split("&").forEach((kv) => {
+          const i = kv.indexOf("=");
+          if (i < 0) this._pairs.push([decodeURIComponent(kv), ""]);
+          else this._pairs.push([decodeURIComponent(kv.slice(0, i)), decodeURIComponent(kv.slice(i + 1))]);
+        });
+      } else if (init && typeof init === "object") {
+        Object.keys(init).forEach((k) => this._pairs.push([k, String(init[k])]));
+      }
+    }
+    append(k, v) { this._pairs.push([String(k), String(v)]); }
+    get(k) { const hit = this._pairs.find((x) => x[0] === String(k)); return hit ? hit[1] : null; }
+    set(k, v) { const i = this._pairs.findIndex((x) => x[0] === String(k)); if (i >= 0) this._pairs[i][1] = String(v); else this.append(k, v); }
+    toString() {
+      return this._pairs.map(([k, v]) => encodeURIComponent(k) + "=" + encodeURIComponent(v)).join("&");
+    }
+  };
+}
+
+// ---- AbortSignal 垫片 ----
+// 插件的用法只有 AbortSignal.timeout(ms)，它不会真的中断请求（Go 侧有自己的超时），
+// 这里给个空对象就够，别让 fetch 因为拿不到 signal 报错。
+if (typeof globalThis.AbortSignal === "undefined") {
+  globalThis.AbortSignal = { timeout: () => ({ aborted: false, reason: null }) };
+} else if (typeof globalThis.AbortSignal.timeout !== "function") {
+  globalThis.AbortSignal.timeout = () => ({ aborted: false, reason: null });
+}
+
+// ---- fetch ----
 globalThis.fetch = async function (url, options) {
   options = options || {};
   const headers = options.headers || {};
   const flat = {};
-  if (headers && typeof headers.forEach === 'function') {
+  if (headers && typeof headers.forEach === "function") {
     headers.forEach((v, k) => { flat[k] = v; });
   } else {
-    Object.assign(flat, headers);
+    Object.keys(headers).forEach((k) => { flat[k] = headers[k]; });
   }
-  const body = options.body == null ? '' : String(options.body);
-  const raw = globalThis.__hostFetch(String(url), String(options.method || 'GET'), JSON.stringify(flat), body);
+  let body = "";
+  if (options.body != null) {
+    body = typeof options.body === "string" ? options.body : String(options.body);
+  }
+  const raw = globalThis.__hostFetch(String(url), String(options.method || "GET"), JSON.stringify(flat), body);
   const res = JSON.parse(raw);
-  if (!res.ok) throw new Error(res.error || 'fetch failed');
+  if (!res.ok) throw new Error(res.error || "fetch failed");
+  const lower = {};
+  Object.keys(flat).forEach((k) => { lower[k.toLowerCase()] = flat[k]; });
   return {
     ok: res.status >= 200 && res.status < 300,
     status: res.status,
-    headers: { get: (k) => flat[k.toLowerCase()] || null },
+    statusText: String(res.status),
+    headers: {
+      get: (k) => lower[String(k).toLowerCase()] || null,
+      // 插件靠这个拿 Set-Cookie；Go 侧暂不转发，返回空数组让它继续跑
+      getSetCookie: () => (res.setCookie || []),
+      has: (k) => String(k).toLowerCase() in lower,
+    },
     text: async () => res.body,
     json: async () => JSON.parse(res.body),
   };

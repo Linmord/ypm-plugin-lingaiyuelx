@@ -87,6 +87,20 @@
   .page-footer .sep { opacity: .4; }
   .page-footer a { color: var(--accent); text-decoration: none; }
   .page-footer a:hover { text-decoration: underline; }
+  /* 首屏加载占位：避免白屏，让用户知道在等什么 */
+  .loading { display: flex; align-items: center; gap: 12px; padding: 28px 4px; color: var(--dim); }
+  .spinner {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.15); border-top-color: var(--accent);
+    animation: spin .7s linear infinite; flex: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .load-error {
+    background: var(--card); border: 1px solid var(--err); border-radius: 12px;
+    padding: 18px 20px; margin: 12px 0;
+  }
+  .load-error strong { color: var(--err); }
+  .load-error .hint { margin-top: 8px; }
   .toast {
     position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(12px);
     background: var(--card); border: 1px solid var(--line); border-radius: 10px;
@@ -100,8 +114,9 @@
   <h1>小林的音源扩展 · 账号管理</h1>
   <p class="sub">YesPlayMusic 只有一个账号槽位，两个音源的登录在这里分开管理。改完回到播放器刷新即可。</p>
 
-  <div id="providers"></div>
-
+  <div id="providers">
+    <div class="loading"><div class="spinner"></div><span>正在读取账号…</span></div>
+  </div>
 
   <div id="luoxue"></div>
 
@@ -309,8 +324,12 @@ async function refresh() {
       timer = setTimeout(refresh, 4000);
       return;
     }
-    const data = await api('/api/status');
-    const lx = await api('/api/sources/luoxue').catch(() => ({ scripts: [] }));
+    // 两个请求并行：串行的话首屏要多等一倍
+    const [data, lx] = await Promise.all([
+      api('/api/status'),
+      api('/api/sources/luoxue').catch(() => ({ scripts: [] })),
+    ]);
+    refresh._failed = false;
     // 页脚版本号：不参与结构签名，直接更新文字
     const ver = document.getElementById('plugin-version');
     if (ver && data.version && ver.textContent !== 'v' + data.version) ver.textContent = 'v' + data.version;
@@ -331,7 +350,17 @@ async function refresh() {
     clearTimeout(timer);
     timer = setTimeout(refresh, busy ? 1500 : 5000);
   } catch (err) {
-    // 服务暂时不可用时不要停掉轮询，也不要清空界面
+    // 服务暂时不可用时不要停掉轮询，也不要清空界面。
+    // 但首次加载失败要给出可见的提示，否则就是一片空白。
+    const first = !refresh._sig && !refresh._failed;
+    refresh._failed = true;
+    if (first) {
+      $('#providers').innerHTML =
+        '<div class="load-error"><strong>连不上控制台</strong>' +
+        '<p class="hint">' + esc(err && err.message ? err.message : String(err)) + '</p>' +
+        '<p class="hint">确认 <code>ypm-console.exe</code> 还在运行，然后点下面的按钮。</p>' +
+        '<button data-act="retry-load">重试</button></div>';
+    }
     clearTimeout(timer);
     timer = setTimeout(refresh, 5000);
   }
@@ -343,6 +372,18 @@ document.addEventListener('click', async (e) => {
   const act = btn.dataset.act;
   const name = btn.dataset.p;
   if (act === 'use-provider' && btn.textContent === '当前使用中') return;
+
+  // 加载失败后的重试：立刻重跑一次，不等 5 秒轮询
+  if (act === 'retry-load') {
+    btn.disabled = true;
+    btn.textContent = '重试中…';
+    refresh._failed = false;
+    refresh._sig = null;
+    clearTimeout(timer);
+    await refresh();
+    return;
+  }
+
   btn.disabled = true;
   try {
     if (act === 'login') {
