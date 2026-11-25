@@ -1,4 +1,4 @@
-# 小林的音源扩展
+﻿# 小林的音源扩展
 
 YesPlayMusic 3.0 插件。把网易云音乐和 QQ 音乐合成一个入口，共用一套搜索、歌单和播放；官方拿不到音频时，交给洛雪音源（lx-music）取址。
 
@@ -16,6 +16,10 @@ Web 管理控制台需要 **Node.js 18+**（[下载](https://nodejs.org/)）。�
 ![首页](docs/home.png)
 
 首页：心动模式接着当前歌推荐，「我喜欢的音乐」「最近播放」并排，下面接推荐歌单。
+
+![播放展示](docs/screenshot.png)
+
+播放器、管理控制台与回落日志同屏：官方灰歌时由落雪音源取址，日志可见命中过程。
 
 ## 安装
 
@@ -129,11 +133,6 @@ locales/                 9 种语言
 
 - [lymzzyh/ypm-plugin-netease](https://github.com/lymzzyh/ypm-plugin-netease) — 见 `LICENSE-NETEASE`
 - [lymzzyh/ypm-plugin-qqmusic](https://github.com/lymzzyh/ypm-plugin-qqmusic) — 见 `LICENSE-QQMUSIC`
-
-**上游进度**（截至 2026-11-25）：
-
-- `ypm-plugin-netease`：活跃开发中。上游当天合入了心动模式（feat/heartbeat-mode）、喜欢歌单顺序与收藏时间修复等 PR，本插件的心动模式实现与其同源，后续上游改进可直接跟进。
-- `ypm-plugin-qqmusic`：2026-11-24 加入音质选择与单独购买专辑权限修复，本插件的音质设置已覆盖同一能力。
 
 图标来自 [lyswhut/lx-music-desktop](https://github.com/lyswhut/lx-music-desktop)（MIT），见 `THIRD_PARTY_MIT_LICENSE`。
 
