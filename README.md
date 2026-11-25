@@ -17,14 +17,6 @@ Web 管理控制台需要 **Node.js 18+**（[下载](https://nodejs.org/)）。�
 
 首页：心动模式接着当前歌推荐，「我喜欢的音乐」「最近播放」并排，下面接推荐歌单。
 
-![播放展示](docs/screenshot.png)
-
-播放器、管理控制台与回落日志同屏：官方灰歌时由落雪音源取址，日志可见命中过程。
-
-![首页卡片](docs/home-modes.png)
-
-首页「我喜欢的音乐」封面跟随最新收藏的歌，每次收藏新歌都会变化。
-
 ## 安装
 
 **从 GitHub 安装**：设置 → 插件 → 安装插件，粘贴 `github.com/Linmord/ypm-plugin-lingaiyuelx`。
