@@ -16,7 +16,7 @@ files = [root / name for name in [
     'LICENSE-NETEASE', 'LICENSE-QQMUSIC', 'THIRD_PARTY_MIT_LICENSE',
     'README.md',
 ]]
-for directory in ['locales', 'shared', 'providers']:
+for directory in ['locales', 'shared', 'providers', 'console', 'docs']:
     files.extend(p for p in (root / directory).rglob('*') if p.is_file())
 
 missing = [p for p in files if not p.exists()]

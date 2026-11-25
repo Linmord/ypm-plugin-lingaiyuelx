@@ -9,6 +9,10 @@ YesPlayMusic 3.0 插件。把网易云音乐和 QQ 音乐合成一个入口，�
 
 需要 YesPlayMusic 3.0.0 或更高。
 
+![播放展示](docs/screenshot.png)
+
+播放器、管理控制台与回落日志同屏：官方灰歌时由落雪音源取址，日志可见命中过程。
+
 ## 安装
 
 **从 GitHub 安装**：设置 → 插件 → 安装插件，粘贴 `github.com/Linmord/ypm-plugin-lingaiyuelx`。

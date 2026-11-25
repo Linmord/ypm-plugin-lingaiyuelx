@@ -102,10 +102,29 @@ installHost({
   pluginDir: PLUGIN_DIR,
   getSettings: readSettings,
   onPrompt: (value) => {
-    // 两个音源同时登录时会混在一起，用当前活动登录标记归属
-    const who = activeLogin || 'netease';
-    prompts[who] = value && value.qr ? { qr: value.qr, text: value.text || '' } : prompts[who];
-    if (value && value.text) loginState[who].message = value.text;
+    // 只有 pending 的登录才接受二维码；取消后插件后台还在推，
+    // 不拦住的话刷新页面二维码会复活。
+    const who = activeLogin;
+    if (!who || !loginState[who] || loginState[who].status !== 'pending') return;
+    if (value && value.qr) {
+      const qr = String(value.qr);
+      // 防止旧登录的 prompt 串到新登录的卡片上：
+      // 网易云的码是 music.163.com 的 URL，QQ 的是 base64 图片。
+      const neteaseQr = qr.includes('music.163.com') || qr.includes('codekey=');
+      const qqQr = qr.startsWith('data:image');
+      if (who === 'qq' && neteaseQr) return;
+      if (who === 'netease' && qqQr) return;
+      prompts[who] = { qr, text: value.text || '' };
+    }
+    if (value && value.text) {
+      const msg = String(value.text);
+      // 纯文字提示也要防串台：文案里的平台名能识别来源
+      const neteaseMsg = msg.includes('网易云');
+      const qqMsg = msg.includes('微信') || msg.includes('QQ 登录') || msg.includes('手机 QQ');
+      if (who === 'qq' && neteaseMsg) return;
+      if (who === 'netease' && qqMsg) return;
+      loginState[who].message = msg;
+    }
   },
   onLog: (m) => log('[host] ' + m),
 });
@@ -202,6 +221,25 @@ const server = http.createServer(async (req, res) => {
       const { provider: name } = await readBody(req);
       if (!PROVIDERS.includes(name)) return json(res, 400, { error: '未知音源' });
       const mod = await provider(name);
+
+      // 同一时间只允许一个音源在登录。
+      // 否则旧登录的 signInPrompt 会把提示写到新登录的卡片上
+      // （host.signInPrompt 不带 provider，只能靠 activeLogin 归属）。
+      const storeFile = path.join(DATA_DIR, 'storage.json');
+      for (const other of PROVIDERS) {
+        if (other === name) continue;
+        if (loginState[other] && loginState[other].status === 'pending') {
+          try {
+            const store = existsSync(storeFile) ? JSON.parse(readFileSync(storeFile, 'utf8')) : {};
+            const key = 'p:' + other + ':sessionEpoch';
+            store[key] = (Number(store[key]) || 0) + 1;
+            writeFileSync(storeFile, JSON.stringify(store), 'utf8');
+          } catch (e) { /* 忽略 */ }
+          loginState[other] = { status: 'idle', message: '已取消' };
+          prompts[other] = null;
+        }
+      }
+
       activeLogin = name;
       prompts[name] = null;
       loginState[name] = { status: 'pending', message: '正在获取二维码…' };
@@ -213,7 +251,7 @@ const server = http.createServer(async (req, res) => {
       }).catch((e) => {
         loginState[name] = { status: 'error', message: e && e.message ? e.message : String(e) };
         log(name + ' 登录失败: ' + loginState[name].message);
-      }).finally(() => { activeLogin = null; });
+      }).finally(() => { if (activeLogin === name) activeLogin = null; });
       return json(res, 200, { ok: true, started: true });
     }
 
@@ -372,8 +410,21 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/cancel' && req.method === 'POST') {
       const { provider: name } = await readBody(req);
       if (PROVIDERS.includes(name)) {
+        // 真正取消：增加 sessionEpoch，插件的 signIn 循环靠它中断。
+        // 只清 prompts 不够——插件后台还在推二维码，刷新后会复活。
+        const storeFile = path.join(DATA_DIR, 'storage.json');
+        try {
+          const store = existsSync(storeFile) ? JSON.parse(readFileSync(storeFile, 'utf8')) : {};
+          const key = 'p:' + name + ':sessionEpoch';
+          store[key] = (Number(store[key]) || 0) + 1;
+          mkdirSync(DATA_DIR, { recursive: true });
+          writeFileSync(storeFile, JSON.stringify(store), 'utf8');
+        } catch (e) {
+          log('取消登录时更新 sessionEpoch 失败: ' + e.message);
+        }
         loginState[name] = { status: 'idle', message: '已取消' };
         prompts[name] = null;
+        activeLogin = null;
       }
       return json(res, 200, { ok: true });
     }
