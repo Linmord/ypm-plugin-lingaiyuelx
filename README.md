@@ -21,6 +21,10 @@ Web 管理控制台需要 **Node.js 18+**（[下载](https://nodejs.org/)）。�
 
 播放器、管理控制台与回落日志同屏：官方灰歌时由落雪音源取址，日志可见命中过程。
 
+![首页卡片](docs/home-modes.png)
+
+首页「我喜欢的音乐」封面跟随最新收藏的歌，每次收藏新歌都会变化。
+
 ## 安装
 
 **从 GitHub 安装**：设置 → 插件 → 安装插件，粘贴 `github.com/Linmord/ypm-plugin-lingaiyuelx`。
@@ -133,6 +137,11 @@ locales/                 9 种语言
 
 - [lymzzyh/ypm-plugin-netease](https://github.com/lymzzyh/ypm-plugin-netease) — 见 `LICENSE-NETEASE`
 - [lymzzyh/ypm-plugin-qqmusic](https://github.com/lymzzyh/ypm-plugin-qqmusic) — 见 `LICENSE-QQMUSIC`
+
+**上游进度**（截至 2026-11-25）：
+
+- `ypm-plugin-netease`：活跃开发中。上游当天合入了心动模式（feat/heartbeat-mode）、喜欢歌单顺序与收藏时间修复等 PR，本插件的心动模式实现与其同源，后续上游改进可直接跟进。
+- `ypm-plugin-qqmusic`：2026-11-24 加入音质选择与单独购买专辑权限修复，本插件的音质设置已覆盖同一能力。
 
 图标来自 [lyswhut/lx-music-desktop](https://github.com/lyswhut/lx-music-desktop)（MIT），见 `THIRD_PARTY_MIT_LICENSE`。
 
