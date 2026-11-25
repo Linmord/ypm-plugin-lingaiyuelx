@@ -11,3 +11,8 @@ _*.mjs
 # 系统
 .DS_Store
 Thumbs.db
+
+# 控制台构建产物
+console/dist/
+console/*.exe
+

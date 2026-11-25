@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多音源播放器 · 账号管理</title>
+<style>
+  :root {
+    --bg: #1a1a19; --card: #262624; --line: #3a3936; --text: #e8e6dc;
+    --dim: #9c9a92; --accent: #d97757; --ok: #7bb87b; --warn: #d9a957; --err: #d96b6b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); min-height: 100vh;
+    font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    padding: 32px 20px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .sub { color: var(--dim); font-size: 13px; margin-bottom: 24px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 18px 20px; margin-bottom: 14px;
+  }
+  .row { display: flex; align-items: center; gap: 14px; }
+  .avatar {
+    width: 44px; height: 44px; border-radius: 50%; flex: none;
+    background: var(--line); display: flex; align-items: center; justify-content: center;
+    font-size: 18px; color: var(--dim); overflow: hidden;
+  }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .grow { flex: 1; min-width: 0; }
+  .name { font-weight: 500; }
+  .meta { color: var(--dim); font-size: 12.5px; margin-top: 2px; }
+  .badge {
+    display: inline-block; padding: 1px 8px; border-radius: 999px;
+    font-size: 11.5px; margin-left: 8px; vertical-align: 1px;
+  }
+  .badge.on { background: rgba(123,184,123,.16); color: var(--ok); }
+  .badge.off { background: rgba(156,154,146,.16); color: var(--dim); }
+  .badge.err { background: rgba(217,107,107,.16); color: var(--err); }
+  button {
+    font: inherit; cursor: pointer; border-radius: 8px; padding: 7px 16px;
+    border: 1px solid var(--line); background: transparent; color: var(--text);
+    transition: background .15s, border-color .15s;
+  }
+  button:hover:not(:disabled) { background: rgba(255,255,255,.06); border-color: var(--dim); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { background: #e38a6d; }
+  .qr { display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); text-align: center; }
+  .qr.show { display: block; }
+  .qr img { width: 180px; height: 180px; background: #fff; border-radius: 8px; padding: 8px; }
+  .qr .tip { color: var(--dim); font-size: 12.5px; margin-top: 10px; }
+  .setting { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .setting:last-child { border-bottom: none; }
+  .setting .label { flex: 1; }
+  .setting .help { color: var(--dim); font-size: 12px; margin-top: 2px; }
+  select, input[type=text] {
+    font: inherit; background: var(--bg); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; min-width: 150px;
+  }
+  .drag { color: var(--dim); font-size: 14px; cursor: grab; letter-spacing: -2px; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .btn-row button { white-space: nowrap; flex: none; }
+  .card .row { flex-wrap: nowrap; }
+  .card .row .grow { min-width: 0; }
+  .card .row .name, .card .row .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cf-title { font-weight: 500; margin-bottom: 12px; }
+  .cf-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .cf-row label { width: 72px; flex: none; color: var(--dim); font-size: 13px; text-align: left; }
+  .cf-row input { flex: 1; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+  .cf-hint { color: var(--dim); font-size: 12px; line-height: 1.7; text-align: left; margin: 6px 0 12px; }
+  .cf-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .acc-list { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .acc-title { color: var(--dim); font-size: 12px; margin-bottom: 8px; }
+  .acc { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
+  .acc .avatar.sm { width: 30px; height: 30px; font-size: 13px; }
+  .acc button { padding: 4px 12px; font-size: 12.5px; }
+  .hint { color: var(--dim); font-size: 12.5px; line-height: 1.7; margin-top: 6px; }
+  .hint code { background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 4px; }
+  .err { color: var(--err); font-size: 12.5px; margin-top: 6px; }
+  .page-footer {
+    text-align: center; color: var(--dim); font-size: 12.5px;
+    padding: 24px 0 8px; display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .page-footer .sep { opacity: .4; }
+  .page-footer a { color: var(--accent); text-decoration: none; }
+  .page-footer a:hover { text-decoration: underline; }
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(12px);
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 18px; opacity: 0; pointer-events: none; transition: all .22s;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>小林的音源扩展 · 账号管理</h1>
+  <p class="sub">YesPlayMusic 只有一个账号槽位，两个音源的登录在这里分开管理。改完回到播放器刷新即可。</p>
+
+  <div id="providers"></div>
+
+
+  <div id="luoxue"></div>
+
+  <div class="card">
+    <div class="row" style="margin-bottom:6px"><strong>插件设置</strong></div>
+    <div id="settings"></div>
+    <p class="hint">这些设置与播放器内「设置 → 插件 → 小林的音源扩展」是同一份数据，改任一处都会生效。</p>
+  </div>
+
+  <footer class="page-footer">
+    <span>@Linmord</span>
+    <span class="sep">·</span>
+    <a href="https://github.com/Linmord/ypm-plugin-lingaiyuelx" target="_blank" rel="noopener">GitHub</a>
+    <span class="sep">·</span>
+    <span id="plugin-version">v—</span>
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let timer = null;
+let pending = null;
+
+const $ = (sel) => document.querySelector(sel);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+function toast(text) {
+  const el = $('#toast');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+  return res.json();
+}
+
+function qrBlock(p) {
+  if (!p.prompt || !p.prompt.qr) return '';
+  const src = p.prompt.qr.startsWith('data:')
+    ? p.prompt.qr
+    : 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(p.prompt.qr);
+  return '<div class="qr show">' +
+    '<img src="' + esc(src) + '" alt="登录二维码">' +
+    '<div class="tip">' + esc(p.prompt.text || '请用手机 App 扫码') + '</div></div>';
+}
+
+function accountList(p) {
+  // 只有一个账号时也显示：否则用户不知道自己有哪些账号、也无法删除
+  if (!p.accounts || p.accounts.length === 0) return '';
+  const rows = p.accounts.map((a) => {
+    const avatar = a.imageUrl ? '<img src="' + esc(a.imageUrl) + '" alt="">' : esc((a.name || '?').slice(0, 1));
+    const tag = a.active ? '<span class="badge on">当前</span>' : '';
+    const btn = a.active ? '' : '<button data-act="switch" data-id="' + esc(a.id) + '">切换</button>';
+    return '<div class="acc">' +
+      '<div class="avatar sm">' + avatar + '</div>' +
+      '<div class="grow"><div class="name">' + esc(a.name) + tag + '</div>' +
+      '<div class="meta">' + esc(loginTypeLabel(a.loginType)) + ' · ID ' + esc(a.id) + '</div></div>' +
+      btn +
+      '<button data-act="remove-acc" data-id="' + esc(a.id) + '" title="删除这个账号">删</button>' +
+    '</div>';
+  }).join('');
+  return '<div class="acc-list"><div class="acc-title">已保存的账号</div>' + rows + '</div>';
+}
+
+function loginTypeLabel(type) {
+  return ({ 1: '微信登录', 2: 'QQ 登录', 6: 'QQ 音乐 App' })[type] || '未知方式';
+}
+
+function providerCard(p) {
+  const badge = p.loggedIn
+    ? '<span class="badge on">已登录</span>'
+    : (p.login && p.login.status === 'error' ? '<span class="badge err">出错</span>' : '<span class="badge off">未登录</span>');
+  const avatar = p.account && p.account.imageUrl
+    ? '<img src="' + esc(p.account.imageUrl) + '" alt="">'
+    : esc((p.label || '?').slice(0, 1));
+  const busy = p.login && p.login.status === 'pending';
+
+  // 登录入口始终保留：已登录也能继续加账号，登录和切换是两件事
+  let buttons;
+  if (busy) {
+    buttons = '<button data-act="cancel" data-p="' + p.name + '">取消登录</button>';
+  } else if (p.name === 'qq') {
+    buttons =
+      '<button class="primary" data-act="login" data-p="qq" data-mode="wechat">' +
+        (p.loggedIn ? '再加微信账号' : '微信扫码') + '</button>' +
+      '<button data-act="login" data-p="qq" data-mode="qq">' +
+        (p.loggedIn ? '再加 QQ 账号' : 'QQ 扫码') + '</button>' +
+      '<button data-act="cookie">手动 Cookie</button>' +
+      (p.loggedIn
+        ? '<button class="primary" data-act="use-provider" data-p="' + p.name + '">' +
+            (p.active ? '当前使用中' : '使用这个平台') + '</button>' +
+          '<button data-act="logout" data-p="' + p.name + '">退出当前</button>'
+        : '');
+  } else {
+    buttons = p.loggedIn
+      ? '<button class="primary" data-act="use-provider" data-p="' + p.name + '">' +
+          (p.active ? '当前使用中' : '使用这个平台') + '</button>' +
+        '<button data-act="logout" data-p="' + p.name + '">退出当前</button>'
+      : '<button class="primary" data-act="login" data-p="' + p.name + '">登录</button>';
+  }
+
+  const msg = p.login && p.login.message ? '<div class="meta">' + esc(p.login.message) + '</div>' : '';
+  const err = p.error ? '<div class="err">' + esc(p.error) + '</div>' : '';
+  const form = p.name === 'qq' ? cookieForm() : '';
+  // 上下两段：上面是身份，下面是操作。按钮多的时候不再挤压标题
+  return '<div class="card">' +
+    '<div class="row">' +
+      '<div class="avatar">' + avatar + '</div>' +
+      '<div class="grow">' +
+        '<div class="name">' + esc(p.label) + badge + '</div>' +
+        '<div class="meta">' + (p.account ? esc(p.account.name) : '未登录') + '</div>' +
+        msg +
+      '</div>' +
+    '</div>' +
+    '<div class="btn-row">' + buttons + '</div>' +
+    err + qrBlock(p) + form + accountList(p) +
+  '</div>';
+}
+
+function cookieForm() {
+  return '<div class="qr" id="cookie-form">' +
+    '<div class="cf-title">手动填写 Cookie</div>' +
+    '<div class="cf-row"><label>账号 ID</label><input type="text" id="cf-uin" placeholder="qqmusic_uin 或 wxuin，纯数字" autocomplete="off"></div>' +
+    '<div class="cf-row"><label>登录凭据</label><input type="password" id="cf-key" placeholder="qqmusic_key" autocomplete="off"></div>' +
+    '<div class="cf-hint">浏览器登录 y.qq.com 后，F12 → Application → Cookies 里能拿到这两个值。' +
+    '凭据会明文保存在插件数据目录。</div>' +
+    '<div class="cf-actions"><button class="primary" data-act="cookie-submit">登录</button>' +
+    '<button data-act="cookie-close">取消</button></div>' +
+  '</div>';
+}
+
+function settingRow(key, label, help, control) {
+  return '<div class="setting"><div class="label"><div>' + esc(label) + '</div>' +
+    (help ? '<div class="help">' + esc(help) + '</div>' : '') + '</div>' + control + '</div>';
+}
+
+function luoxueBlock(scripts) {
+  const rows = scripts.length
+    ? scripts.map((s, i) =>
+        '<div class="acc lx-row" draggable="true" data-name="' + esc(s.name) + '">' +
+        '<span class="rank">' + (i + 1) + '</span>' +
+        '<div class="grow"><div class="name">' + esc(s.name) + '</div>' +
+        '<div class="meta">支持 ' + esc((s.sources || []).join(' / ')) + '</div></div>' +
+        '<span class="drag">⋮⋮</span>' +
+        '<button data-act="lx-remove" data-name="' + esc(s.name) + '">删</button></div>').join('')
+    : '<div class="hint" style="margin:0">还没有导入音源</div>';
+  return '<div class="card"><div class="row" style="margin-bottom:6px"><strong>落雪音源导入</strong></div>' +
+    rows +
+    '<div class="cf-row" style="margin-top:12px"><label>名字</label><input type="text" id="lx-name" placeholder="例如 星海音乐源" autocomplete="off"></div>' +
+    '<div class="cf-row"><label>网络地址</label><input type="text" id="lx-url" placeholder="https://example.com/source.js" autocomplete="off"></div>' +
+    '<div class="cf-row"><label>或文件</label><input type="file" id="lx-file" accept=".js,text/javascript"></div>' +
+    (scripts.length > 1 ? '<div class="cf-hint">拖动排序：序号 1 的音源最先被尝试，灰歌回落时按这个顺序逐个试。</div>' : '') +
+    '<div class="cf-hint">填网络地址或选本地文件，二选一。需要是落雪音乐（lx-music）格式的 .js 音源。</div>' +
+    '<div class="cf-actions"><button class="primary" data-act="lx-import">导入</button></div>' +
+  '</div>';
+}
+
+function settingsBlock(s) {
+  let html = '';
+  // 音质合并成一项：两个音源各存一份，但只让用户选一次
+  const q = s['qq:quality'] || s['netease:quality'] || '';
+  html += settingRow('quality', '音质',
+    '优先使用所选档位，不可用时自动降低；两个音源共用这一项',
+    '<select data-set="quality">' +
+      [['', '跟随播放器'], ['standard', '标准'], ['high', '高音质'], ['lossless', '无损'], ['hires', 'Hi-Res']].map(([v, l]) =>
+        '<option value="' + v + '"' + (q === v ? ' selected' : '') + '>' + l + '</option>').join('') +
+    '</select>');
+
+  html += settingRow('fallback', '洛雪音源',
+    '官方拿不到音频时，用导入的洛雪音源取址',
+    '<select data-set="fallback">' +
+      '<option value=""' + (s.fallback !== 'true' ? ' selected' : '') + '>关闭</option>' +
+      '<option value="true"' + (s.fallback === 'true' ? ' selected' : '') + '>开启</option>' +
+    '</select>');
+  return html;
+}
+
+/**
+ * 用户正在操作时不要重绘：输入框里的内容、选好的文件、展开的表单
+ * 都会被 innerHTML 覆盖掉，看起来就像「自己变回去了」。
+ */
+function isBusy() {
+  const active = document.activeElement;
+  if (active && ['INPUT', 'SELECT', 'TEXTAREA'].includes(active.tagName)) return true;
+  if (document.getElementById('cookie-form')?.classList.contains('show')) return true;
+  const file = document.getElementById('lx-file');
+  if (file && file.files && file.files.length) return true;
+  const name = document.getElementById('lx-name');
+  if (name && name.value.trim()) return true;
+  const srcUrl = document.getElementById('lx-url');
+  if (srcUrl && srcUrl.value.trim()) return true;
+  return false;
+}
+
+/** 只更新会变化的状态文字，不重绘整块结构 */
+async function refresh() {
+  try {
+    if (isBusy()) {
+      // 操作中：只刷新账号状态，不动表单
+      timer = setTimeout(refresh, 4000);
+      return;
+    }
+    const data = await api('/api/status');
+    const lx = await api('/api/sources/luoxue').catch(() => ({ scripts: [] }));
+    // 页脚版本号：不参与结构签名，直接更新文字
+    const ver = document.getElementById('plugin-version');
+    if (ver && data.version && ver.textContent !== 'v' + data.version) ver.textContent = 'v' + data.version;
+
+    // 结构没变就不重绘，避免输入焦点丢失
+    const sig = JSON.stringify({
+      p: data.providers.map((x) => [x.name, x.loggedIn, x.account && x.account.id, x.login && x.login.status, Boolean(x.prompt), (x.accounts || []).map((a) => a.id + a.active)]),
+      s: data.sources,
+      l: (lx.scripts || []).map((x) => x.name),
+    });
+    if (sig !== refresh._sig) {
+      refresh._sig = sig;
+      $('#providers').innerHTML = data.providers.map(providerCard).join('');
+      $('#luoxue').innerHTML = luoxueBlock(lx.scripts || []);
+      $('#settings').innerHTML = settingsBlock(data.settings);
+    }
+    const busy = data.providers.some((p) => p.login && p.login.status === 'pending');
+    clearTimeout(timer);
+    timer = setTimeout(refresh, busy ? 1500 : 5000);
+  } catch (err) {
+    // 服务暂时不可用时不要停掉轮询，也不要清空界面
+    clearTimeout(timer);
+    timer = setTimeout(refresh, 5000);
+  }
+}
+
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const act = btn.dataset.act;
+  const name = btn.dataset.p;
+  if (act === 'use-provider' && btn.textContent === '当前使用中') return;
+  btn.disabled = true;
+  try {
+    if (act === 'login') {
+      const mode = btn.dataset.mode;
+      if (mode) await api('/api/loginMode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) });
+      await api('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: name }) });
+      toast(mode === 'qq' ? '正在获取 QQ 二维码…' : '正在获取微信二维码…');
+    } else if (act === 'cookie') {
+      const form = document.getElementById('cookie-form');
+      if (form) form.classList.toggle('show');
+      btn.disabled = false;
+      return;
+    } else if (act === 'cookie-close') {
+      const form = document.getElementById('cookie-form');
+      if (form) form.classList.remove('show');
+      btn.disabled = false;
+      return;
+    } else if (act === 'cookie-submit') {
+      const uin = (document.getElementById('cf-uin') || {}).value || '';
+      const musickey = (document.getElementById('cf-key') || {}).value || '';
+      if (!uin.trim() || !musickey.trim()) { toast('请填写账号 ID 和登录凭据'); btn.disabled = false; return; }
+      const res = await api('/api/loginCookie', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uin: uin.trim(), musickey: musickey.trim() }),
+      });
+      toast('登录成功：' + (res.account && res.account.name ? res.account.name : '已保存'));
+    } else if (act === 'logout') {
+      await api('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: name }) });
+      toast('已退出（凭据保留）');
+    } else if (act === 'cancel') {
+      await api('/api/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: name }) });
+      toast('已取消');
+    } else if (act === 'lx-import') {
+      const name = (document.getElementById('lx-name') || {}).value || '';
+      const url = (document.getElementById('lx-url') || {}).value || '';
+      const file = (document.getElementById('lx-file') || {}).files?.[0];
+      if (!name.trim()) { toast('请给音源起个名字'); btn.disabled = false; return; }
+      if (!url.trim() && !file) { toast('请填网络地址或选择 .js 文件'); btn.disabled = false; return; }
+
+      let res;
+      if (url.trim()) {
+        toast('正在下载…');
+        res = await api('/api/sources/importUrl', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name.trim(), url: url.trim() }),
+        });
+      } else {
+        const source = await file.text();
+        res = await api('/api/sources/import', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name.trim(), source }),
+        });
+      }
+      toast('已导入：' + (res.info ? res.info.sources.join(' / ') : ''));
+      // 导入完清空表单，否则 isBusy 会一直挡住刷新
+      const ni = document.getElementById('lx-name');
+      const ui = document.getElementById('lx-url');
+      const fi = document.getElementById('lx-file');
+      if (ni) ni.value = '';
+      if (ui) ui.value = '';
+      if (fi) fi.value = '';
+    } else if (act === 'lx-remove') {
+      await api('/api/sources/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: btn.dataset.name }) });
+      toast('已删除');
+    } else if (act === 'use-provider') {
+      await api('/api/activeProvider', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: name }) });
+      toast('已切到 ' + (name === 'qq' ? 'QQ 音乐' : '网易云音乐'));
+    } else if (act === 'switch') {
+      await api('/api/accounts/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: btn.dataset.id }) });
+      toast('已切换账号');
+    } else if (act === 'remove-acc') {
+      if (!confirm('删除这个账号？凭据会被移除，需要重新扫码登录。')) { btn.disabled = false; return; }
+      await api('/api/accounts/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: btn.dataset.id }) });
+      toast('已删除账号');
+    }
+  } catch (err) {
+    toast('失败：' + err.message);
+  }
+  // 操作后强制重绘一次：清掉签名，让 refresh 认为结构变了
+  refresh._sig = '';
+  clearTimeout(timer);
+  await refresh();
+});
+
+// 落雪音源列表的拖拽排序（与上面的音源开关是两套）
+let lxDrag = null;
+document.addEventListener('dragstart', (e) => {
+  const row = e.target.closest('.lx-row');
+  if (!row) return;
+  lxDrag = row;
+  row.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  try { e.dataTransfer.setData('text/plain', row.dataset.name); } catch (_) { /* 忽略 */ }
+});
+document.addEventListener('dragover', (e) => {
+  const row = e.target.closest('.lx-row');
+  if (!row || !lxDrag || row === lxDrag) return;
+  e.preventDefault();
+  const box = row.getBoundingClientRect();
+  const after = e.clientY > box.top + box.height / 2;
+  row.parentNode.insertBefore(lxDrag, after ? row.nextSibling : row);
+});
+document.addEventListener('dragend', async () => {
+  if (!lxDrag) return;
+  lxDrag.classList.remove('dragging');
+  lxDrag = null;
+  const names = [...document.querySelectorAll('.lx-row')].map((x) => x.dataset.name);
+  if (!names.length) return;
+  try {
+    await api('/api/sources/reorder', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names }) });
+    toast('音源顺序已保存');
+    refresh._sig = '';
+    clearTimeout(timer);
+    await refresh();
+  } catch (err) { toast('保存失败：' + err.message); }
+});
+
+document.addEventListener('change', async (e) => {
+  const sel = e.target.closest('select[data-set], input[data-set]');
+  if (!sel) return;
+  try {
+    // 音质是合并项，写两个音源的键
+    const patch = sel.dataset.set === 'quality'
+      ? { 'qq:quality': sel.value, 'netease:quality': sel.value }
+      : { [sel.dataset.set]: sel.value };
+    await api('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+    toast('已保存');
+  } catch (err) {
+    toast('保存失败：' + err.message);
+  }
+});
+
+refresh().catch((err) => {
+  document.body.insertAdjacentHTML('afterbegin', '<div class="card err">无法连接本地服务：' + esc(err.message) + '</div>');
+});
+</script>
+</body>
+</html>

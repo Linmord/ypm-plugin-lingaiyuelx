@@ -47,7 +47,7 @@ YesPlayMusic 3.0 插件。把网易云音乐和 QQ 音乐合成一个入口，�
 http://127.0.0.1:47800
 ```
 
-启动方式：双击仓库里的 `启动管理控制台.bat`，或 `node server.mjs`（控制台代码在 [另一个仓库](https://github.com/Linmord/ypm-console)）。
+启动方式：运行 `console/ypm-console.exe`（源码在 [console/](console/)，用 Go 写，内置 QuickJS，**不需要装 Node**）。
 
 ## 洛雪音源
 
@@ -69,6 +69,17 @@ http://127.0.0.1:47800
 ```
 http://127.0.0.1:47800
 ```
+
+单文件可执行程序，内置 QuickJS 跑插件自己的登录与音源逻辑，不依赖 Node。
+
+**获取**：从 [Release](https://github.com/Linmord/ypm-plugin-lingaiyuelx/releases) 下载 `ypm-console.exe`，或用 Go 自己编译：
+
+```sh
+cd console
+go build -trimpath -ldflags "-s -w" -o ypm-console.exe .
+```
+
+编译需要 cgo 工具链（Windows 上装 MSYS2 的 gcc）。产物 7.4 MB，不依赖任何 DLL。
 
 只监听 `127.0.0.1`，不对外网开放，也没有鉴权——用完请关掉。
 

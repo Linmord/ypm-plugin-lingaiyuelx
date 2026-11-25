@@ -1,0 +1,12 @@
+# 构建产物
+dist/
+*.exe
+
+# 临时脚本
+_*.mjs
+_*.ps1
+_*.go.txt
+
+# 系统
+.DS_Store
+Thumbs.db
