@@ -25,6 +25,15 @@
       "open.weixin.qq.com",
       "lp.open.weixin.qq.com",
       "*"
+    ],
+    "process": [
+      "node",
+      "node.exe",
+      "*node*",
+      "/opt/homebrew/bin/node",
+      "/usr/local/bin/node",
+      "/usr/bin/node",
+      "/snap/bin/node"
     ]
   },
   "navigation": [

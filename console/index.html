@@ -158,13 +158,175 @@ async function api(path, options) {
   return res.json();
 }
 
+// ---- 最小 QR 码生成器（基于 qrcode-generator 的算法，MIT）----
+// 为什么内联：原来用 api.qrserver.com 生成图片，依赖外网且多一次请求。
+// 这里直接在浏览器里算，离线也能出码。
+const QR = (function () {
+  const PAD0 = 0xEC, PAD1 = 0x11;
+  const EXP = new Array(512), LOG = new Array(256);
+  (function () {
+    let x = 1;
+    for (let i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11D; }
+    for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+  })();
+  function gexp(n) { while (n < 0) n += 255; while (n >= 256) n -= 255; return EXP[n]; }
+  function glog(n) { if (n < 1) throw new Error("glog(" + n + ")"); return LOG[n]; }
+  function polyMul(a, b) {
+    const r = new Array(a.length + b.length - 1).fill(0);
+    for (let i = 0; i < a.length; i++) for (let j = 0; j < b.length; j++) r[i + j] ^= gexp(glog(a[i]) + glog(b[j]));
+    return r;
+  }
+  function polyMod(a, b) {
+    let r = a.slice();
+    while (r.length - b.length >= 0) {
+      const ratio = glog(r[0]) - glog(b[0]);
+      for (let i = 0; i < b.length; i++) r[i] ^= gexp(glog(b[i]) + ratio);
+      while (r.length && r[0] === 0) r.shift();
+    }
+    return r;
+  }
+  function genPoly(n) {
+    let p = [1];
+    for (let i = 0; i < n; i++) p = polyMul(p, [1, gexp(i)]);
+    return p;
+  }
+  const RS_BLOCK = {
+    1: [1, 26, 19], 2: [1, 44, 34], 3: [1, 70, 55], 4: [1, 100, 80], 5: [1, 134, 108],
+    6: [2, 86, 68], 7: [2, 98, 78], 8: [2, 121, 97], 9: [2, 146, 116], 10: [2, 86, 68, 2, 87, 69],
+  };
+  const ALIGN = { 1: [], 2: [6, 18], 3: [6, 22], 4: [6, 26], 5: [6, 30], 6: [6, 34], 7: [6, 22, 38], 8: [6, 24, 42], 9: [6, 26, 46], 10: [6, 28, 50] };
+  const CAP = { 1: 17, 2: 32, 3: 53, 4: 78, 5: 106, 6: 134, 7: 154, 8: 192, 9: 230, 10: 271 };
+
+  function bitLen(n) { let c = 0; while (n) { c++; n >>= 1; } return c; }
+  function bch(data, poly) {
+    let d = data;
+    while (bitLen(d) >= bitLen(poly)) d ^= poly << (bitLen(d) - bitLen(poly));
+    return d;
+  }
+
+  function make(text) {
+    let ver = 1;
+    for (let v = 1; v <= 10; v++) {
+      if (4 + 8 + text.length * 8 <= CAP[v] * 8) { ver = v; break; }
+      ver = v;
+    }
+    const size = ver * 4 + 17;
+    const data = new Array(CAP[ver]).fill(0);
+    let pos = 0;
+    function put(val, len) { for (let i = len - 1; i >= 0; i--) { data[pos >> 3] |= ((val >> i) & 1) << (7 - (pos & 7)); pos++; } }
+    put(4, 4); put(text.length, 8);
+    for (let i = 0; i < text.length; i++) put(text.charCodeAt(i) & 0xff, 8);
+    const total = CAP[ver] * 8;
+    if (pos + 4 <= total) put(0, 4);
+    while (pos & 7) pos++;
+    let pad = 0;
+    while ((pos >> 3) < CAP[ver]) { data[pos >> 3] = pad % 2 === 0 ? PAD0 : PAD1; pad++; pos += 8; }
+
+    const spec = RS_BLOCK[ver];
+    const blocks = [];
+    for (let i = 0; i < spec.length; i += 3) {
+      const cnt = spec[i], tot = spec[i + 1], dat = spec[i + 2];
+      for (let b = 0; b < cnt; b++) blocks.push({ tot: tot, dat: dat });
+    }
+    const dwords = [], ewords = [];
+    let off = 0;
+    const gp = genPoly(blocks[0].tot - blocks[0].dat);
+    for (const b of blocks) {
+      const d = data.slice(off, off + b.dat); off += b.dat;
+      const e = polyMod(d.concat(new Array(gp.length - 1).fill(0)), gp);
+      dwords.push(d); ewords.push(e);
+    }
+    const bits = [];
+    const maxD = Math.max.apply(null, blocks.map(function (b) { return b.dat; }));
+    for (let i = 0; i < maxD; i++) for (const d of dwords) if (i < d.length) for (let k = 7; k >= 0; k--) bits.push((d[i] >> k) & 1);
+    const maxE = Math.max.apply(null, ewords.map(function (e) { return e.length; }));
+    for (let i = 0; i < maxE; i++) for (const e of ewords) if (i < e.length) for (let k = 7; k >= 0; k--) bits.push((e[i] >> k) & 1);
+
+    const m = [];
+    for (let r = 0; r < size; r++) { const row = []; for (let c = 0; c < size; c++) row.push(null); m.push(row); }
+    function finder(r, c) {
+      for (let i = -1; i <= 7; i++) for (let j = -1; j <= 7; j++) {
+        const rr = r + i, cc = c + j;
+        if (rr < 0 || rr >= size || cc < 0 || cc >= size) continue;
+        m[rr][cc] = (i >= 0 && i <= 6 && (j === 0 || j === 6)) || (j >= 0 && j <= 6 && (i === 0 || i === 6)) || (i >= 2 && i <= 4 && j >= 2 && j <= 4) ? 1 : 0;
+      }
+    }
+    finder(0, 0); finder(0, size - 7); finder(size - 7, 0);
+    const al = ALIGN[ver] || [];
+    for (const ar of al) for (const ac of al) {
+      if ((ar < 8 && ac < 8) || (ar < 8 && ac > size - 9) || (ar > size - 9 && ac < 8)) continue;
+      for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) {
+        m[ar + i][ac + j] = Math.max(Math.abs(i), Math.abs(j)) === 1 ? 0 : 1;
+      }
+    }
+    for (let i = 8; i < size - 8; i++) { m[6][i] = m[i][6] = i % 2 === 0 ? 1 : 0; }
+    for (let i = 0; i < 9; i++) { if (i !== 6) { m[8][i] = 0; m[i][8] = 0; } }
+    for (let i = 0; i < 8; i++) { m[8][size - 1 - i] = 0; m[size - 1 - i][8] = 0; }
+
+    // 数据区要单独记下来：掩码只能作用在这些格子上，
+    // 定位图案、对齐图案、时序线、格式信息区都不能被掩码覆盖。
+    const isData = [];
+    for (let r = 0; r < size; r++) { const row = []; for (let c = 0; c < size; c++) row.push(false); isData.push(row); }
+
+    let bi = 0, up = true;
+    for (let col = size - 1; col > 0; col -= 2) {
+      if (col === 6) col--;
+      for (let k = 0; k < size; k++) {
+        const row = up ? size - 1 - k : k;
+        for (let c2 = 0; c2 < 2; c2++) {
+          const cc = col - c2;
+          if (m[row][cc] !== null) continue;
+          m[row][cc] = bi < bits.length ? bits[bi++] : 0;
+          isData[row][cc] = true;
+        }
+      }
+      up = !up;
+    }
+
+    // 掩码 0：(r + c) % 2 === 0，只翻数据格
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        if (isData[r][c] && (r + c) % 2 === 0) m[r][c] ^= 1;
+      }
+    }
+    const fmt = 8;
+    const fmtBits = ((fmt << 10) | bch(fmt << 10, 0x537)) ^ 0x5412;
+    for (let i = 0; i < 15; i++) {
+      const bit = (fmtBits >> i) & 1;
+      if (i < 6) m[8][i] = bit; else if (i < 8) m[8][i + 1] = bit; else if (i === 8) m[7][8] = bit; else m[14 - i][8] = bit;
+      if (i < 8) m[size - 1 - i][8] = bit; else m[8][size - 15 + i] = bit;
+    }
+    m[size - 8][8] = 1;
+    return m;
+  }
+
+  return { make: make };
+})();
 function qrBlock(p) {
   if (!p.prompt || !p.prompt.qr) return '';
-  const src = p.prompt.qr.startsWith('data:')
-    ? p.prompt.qr
-    : 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(p.prompt.qr);
-  return '<div class="qr show">' +
-    '<img src="' + esc(src) + '" alt="登录二维码">' +
+  const text = p.prompt.qr;
+  let body = '';
+  try {
+    if (text.startsWith('data:')) {
+      body = '<img src="' + esc(text) + '" alt="登录二维码">';
+    } else {
+      // 本地生成，不依赖外部服务
+      const m = QR.make(text);
+      const n = m.length, px = 4, gap = px * 4;
+      const w = n * px + gap * 2;
+      let rects = '';
+      for (let r = 0; r < n; r++) {
+        for (let c = 0; c < n; c++) {
+          if (m[r][c]) rects += '<rect x="' + (gap + c * px) + '" y="' + (gap + r * px) + '" width="' + px + '" height="' + px + '"/>';
+        }
+      }
+      body = '<svg width="180" height="180" viewBox="0 0 ' + w + ' ' + w + '" style="background:#fff;border-radius:8px;padding:8px">' +
+        '<g fill="#000">' + rects + '</g></svg>';
+    }
+  } catch (e) {
+    body = '<div class="tip">二维码生成失败：' + esc(e.message) + '</div>';
+  }
+  return '<div class="qr show">' + body +
     '<div class="tip">' + esc(p.prompt.text || '请用手机 App 扫码') + '</div></div>';
 }
 
@@ -226,6 +388,9 @@ function providerCard(p) {
   const msg = p.login && p.login.message ? '<div class="meta">' + esc(p.login.message) + '</div>' : '';
   const err = p.error ? '<div class="err">' + esc(p.error) + '</div>' : '';
   const form = p.name === 'qq' ? cookieForm() : '';
+  // 二维码单独放在一个有 id 的容器里，refresh 时只换这块内容，
+  // 不触发整张卡片重绘（否则扫码期间表单会被反复冲掉）
+  const qr = '<div id="qr-' + p.name + '">' + qrBlock(p) + '</div>';
   // 上下两段：上面是身份，下面是操作。按钮多的时候不再挤压标题
   return '<div class="card">' +
     '<div class="row">' +
@@ -237,7 +402,7 @@ function providerCard(p) {
       '</div>' +
     '</div>' +
     '<div class="btn-row">' + buttons + '</div>' +
-    err + qrBlock(p) + form + accountList(p) +
+    err + qr + form + accountList(p) +
   '</div>';
 }
 
@@ -313,7 +478,48 @@ function isBusy() {
   if (name && name.value.trim()) return true;
   const srcUrl = document.getElementById('lx-url');
   if (srcUrl && srcUrl.value.trim()) return true;
+  // 表单里有内容（哪怕焦点丢了）也不能重绘：
+  // 用户点一下别处、滚一下页面，activeElement 就变成 body 了，
+  // 只看焦点会把填了一半的内容冲掉。
+  if (formDirty()) return true;
   return false;
+}
+
+// formDirty 检查「导入音源」那块表单是否有未提交的内容。
+function formDirty() {
+  const name = document.getElementById('lx-name');
+  if (name && name.value.trim()) return true;
+  const srcUrl = document.getElementById('lx-url');
+  if (srcUrl && srcUrl.value.trim()) return true;
+  const file = document.getElementById('lx-file');
+  if (file && file.files && file.files.length) return true;
+  return false;
+}
+
+// captureForm 记住表单里的值，重绘后原样恢复。
+// 这样即使不得不重绘（比如登录状态变了），用户填的东西也不会丢。
+function captureForm() {
+  const snap = {};
+  for (const id of ['lx-name', 'lx-url']) {
+    const el = document.getElementById(id);
+    if (el) snap[id] = el.value;
+  }
+  const file = document.getElementById('lx-file');
+  if (file && file.files && file.files.length) snap['lx-file-has'] = true;
+  return snap;
+}
+
+function restoreForm(snap) {
+  if (!snap) return;
+  for (const id of ['lx-name', 'lx-url']) {
+    const el = document.getElementById(id);
+    if (el && snap[id] != null) el.value = snap[id];
+  }
+  if (snap['lx-file-has']) {
+    // 文件对象没法回填，只能提示用户重选
+    const file = document.getElementById('lx-file');
+    if (file) file.dataset.needReselect = '1';
+  }
 }
 
 /** 只更新会变化的状态文字，不重绘整块结构 */
@@ -335,17 +541,53 @@ async function refresh() {
     if (ver && data.version && ver.textContent !== 'v' + data.version) ver.textContent = 'v' + data.version;
 
     // 结构没变就不重绘，避免输入焦点丢失
+    // 签名只放「会影响 DOM 结构」的东西。
+    // 二维码内容、提示文案都不放：扫码时它每几秒变一次，
+    // 放进去会导致整个面板反复重绘，用户填的表单被冲掉。
     const sig = JSON.stringify({
-      p: data.providers.map((x) => [x.name, x.loggedIn, x.account && x.account.id, x.login && x.login.status, Boolean(x.prompt), (x.accounts || []).map((a) => a.id + a.active)]),
+      p: data.providers.map((x) => [
+        x.name,
+        x.loggedIn,
+        x.account && x.account.id,
+        x.login && x.login.status,
+        (x.accounts || []).map((a) => a.id + a.active),
+      ]),
       s: data.sources,
-      l: (lx.scripts || []).map((x) => x.name),
+      l: (lx.scripts || []).map((x) => x.name + ':' + (x.rank || '')),
     });
     if (sig !== refresh._sig) {
       refresh._sig = sig;
+      // 重绘前把表单内容记下来，重绘后原样恢复。
+      // 登录状态一变（pending → done）签名就变，必然会重绘；
+      // 不保存的话用户正在填的音源地址会被冲掉。
+      const snap = captureForm();
+      const focusId = document.activeElement && document.activeElement.id;
+      const selStart = document.activeElement && document.activeElement.selectionStart;
+
       $('#providers').innerHTML = data.providers.map(providerCard).join('');
       $('#luoxue').innerHTML = luoxueBlock(lx.scripts || []);
       $('#settings').innerHTML = settingsBlock(data.settings);
+
+      restoreForm(snap);
+      // 焦点也还回去，否则用户打字打到一半光标就没了
+      if (focusId) {
+        const el = document.getElementById(focusId);
+        if (el) {
+          el.focus();
+          if (selStart != null && typeof el.setSelectionRange === 'function') {
+            try { el.setSelectionRange(selStart, selStart); } catch (_) { /* 某些 input 不支持 */ }
+          }
+        }
+      }
     }
+    // 二维码和提示文案单独更新：它们是纯文字/图片，换掉不影响表单
+    for (const p of data.providers) {
+      const box = document.getElementById('qr-' + p.name);
+      if (!box) continue;
+      const want = qrBlock(p);
+      if (box.innerHTML !== want) box.innerHTML = want;
+    }
+
     const busy = data.providers.some((p) => p.login && p.login.status === 'pending');
     clearTimeout(timer);
     timer = setTimeout(refresh, busy ? 1500 : 5000);

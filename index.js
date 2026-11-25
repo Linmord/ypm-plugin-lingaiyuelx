@@ -6,6 +6,8 @@ import { encode, decode, PROVIDERS } from './shared/ids.js';
 import { scoped } from './shared/storage.js';
 import { t } from './shared/i18n.js';
 import * as luoxue from './shared/luoxue.js';
+// 副作用导入：模块加载时把 Web 控制台拉起来，宿主关插件它就跟着结束
+import './shared/console-launcher.js';
 
 const registry = { netease, qq };
 const LABEL = { netease: '网易云音乐', qq: 'QQ 音乐' };
