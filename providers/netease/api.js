@@ -373,7 +373,16 @@ export async function home() {
     if (account?.id) {
       try {
         const listId = await likedPlaylistId(account);
-        if (listId) modes.push({ title: t("我喜欢的音乐"), subtitle: t("从你收藏的歌曲继续"), playlist: listId });
+        if (listId) {
+          // 宿主的 Mode 卡片只认 imageUrl，playlist id 它不一定去查封面，
+          // 所以这里把歌单封面一起带上。
+          let cover = "";
+          try {
+            const j = await api("/api/v3/playlist/detail", { id: listId, n: 0 });
+            cover = j.playlist?.coverImgUrl || j.playlist?.pictureUrl || "";
+          } catch (_) { /* 拿不到封面就不带 imageUrl */ }
+          modes.push({ title: t("我喜欢的音乐"), subtitle: t("从你收藏的歌曲继续"), playlist: listId, ...(cover ? { imageUrl: cover } : {}) });
+        }
       } catch (_) { /* 取不到就不放这一项 */ }
     }
     try {
