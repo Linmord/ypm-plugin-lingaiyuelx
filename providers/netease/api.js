@@ -10,6 +10,17 @@ const offsetOf = (value) => Math.max(0, Math.floor(Number(value) || 0));
 const currentId = () => store.get("account")?.id || "";
 let loginSequence = 0;
 
+// 心动模式：接口只认「我喜欢的音乐」歌单作为上下文，seed 是接着哪首放。
+const HEARTBEAT = "heartbeat";
+// 「我喜欢的音乐」顺序与收藏时间来自歌单的 trackIds[].at，like/get 只给 id、没有顺序。
+const LIKED_TTL = 30000;
+const LIKED_PAGE_TTL = 5000;
+const sessionKey = (userId) => `${userId}:${store.get("sessionEpoch") || 0}`;
+const attachAdded = (track, added) => (track && added ? { ...track, added } : track);
+const isLikedPlaylist = (x, userId) => Boolean(userId) && String(x?.creator?.userId ?? x?.userId ?? "") === userId && Number(x?.specialType) === 5;
+let likedPlaylistCache = null;
+let likedCache = null;
+
 export async function account() {
   if (!hasSession()) return null;
   try { return await verify(); }
@@ -198,6 +209,60 @@ export async function playlists() {
   fail("unsupported", "账号歌单数量超过插件当前支持范围");
 }
 
+/** 「我喜欢的音乐」歌单编号；带缓存，换账号或换会话时失效 */
+async function likedPlaylistId(user) {
+  const key = sessionKey(user.id);
+  if (likedPlaylistCache?.key === key) return likedPlaylistCache.id;
+  for (let offset = 0; offset < 10000; offset += 1000) {
+    const j = await api("/api/user/playlist", { uid: user.id, limit: 1000, offset, includeVideo: false });
+    const items = j.playlist || [];
+    const found = items.find((x) => isLikedPlaylist(x, user.id));
+    if (found?.id != null) {
+      const value = String(found.id);
+      if (sessionKey(currentId()) === key) likedPlaylistCache = { key, id: value };
+      return value;
+    }
+    if (!j.more || !items.length) return "";
+  }
+  return "";
+}
+
+/**
+ * 「我喜欢的音乐」快照：entries 是带收藏时间的编号顺序，known 是已拿到的曲目详情。
+ * 找不到红心歌单或详情缺曲目编号时，回退到喜欢编号列表接口。
+ */
+async function likedSnapshot(refresh) {
+  const user = requireAccount();
+  const key = sessionKey(user.id);
+  const ttl = refresh ? LIKED_TTL : LIKED_PAGE_TTL;
+  if (likedCache?.key === key && Date.now() - likedCache.fetchedAt < ttl) return likedCache;
+  let entries = null;
+  let known = new Map();
+  const playlistId = await likedPlaylistId(user);
+  if (playlistId) {
+    const j = await api("/api/v6/playlist/detail", { id: id(playlistId), n: 1000, s: 0 });
+    const pl = j.playlist;
+    if (pl) {
+      const privileges = new Map((j.privileges || []).map((x) => [String(x.id), x]));
+      known = new Map((pl.tracks || []).map((x) => [String(x.id), model.track(x, privileges.get(String(x.id)))]));
+      if (Array.isArray(pl.trackIds) && pl.trackIds.length) {
+        entries = pl.trackIds.map((x) => ({ id: String(x.id), added: model.timestamp(x.at) }));
+      } else if (known.size) {
+        entries = [...known.keys()].map((trackId) => ({ id: trackId, added: "" }));
+      } else if (!Number(pl.trackCount)) {
+        entries = [];
+      }
+    }
+  }
+  if (!entries) {
+    entries = (await likedIds()).map((trackId) => ({ id: trackId, added: "" }));
+    known = new Map();
+  }
+  const snapshot = { key, fetchedAt: Date.now(), entries, known };
+  if (sessionKey(currentId()) === key) likedCache = snapshot;
+  return snapshot;
+}
+
 async function likedIds() {
   const user = requireAccount();
   const cached = store.get("likedIds");
@@ -210,9 +275,15 @@ async function likedIds() {
 }
 
 export async function liked({ offset = 0 }) {
-  const ids = await likedIds();
   const start = offsetOf(offset);
-  return { tracks: await details(ids.slice(start, start + PAGE)), more: start + PAGE < ids.length };
+  const snapshot = await likedSnapshot(start === 0);
+  const slice = snapshot.entries.slice(start, start + PAGE);
+  const missing = [...new Set(slice.map((x) => x.id).filter((x) => !snapshot.known.has(x)))];
+  for (const track of await details(missing)) snapshot.known.set(track.id, track);
+  return {
+    tracks: slice.map(({ id: trackId, added }) => attachAdded(snapshot.known.get(trackId), added)),
+    more: start + PAGE < snapshot.entries.length,
+  };
 }
 
 export async function isLiked({ ids = [] }) {
@@ -226,6 +297,7 @@ export async function like({ id: value, on }) {
   await api("/api/radio/like", { alg: "itembased", trackId: id(value), like: Boolean(on), time: "3" });
   store.remove("likedIds");
   store.remove("likedAt");
+  likedCache = null;
 }
 
 export async function savedAlbums({ offset = 0 }) {
@@ -246,10 +318,71 @@ export async function recent() {
   return (j.data?.list || []).filter((x) => x.data?.id).map((x) => model.track(x.data));
 }
 
+/** 心动模式的起点：优先接着最近播放，其次用第一首收藏 */
+async function heartbeatSeed() {
+  try {
+    const [played] = await recent();
+    if (played?.id) return String(played.id);
+  } catch (e) {
+    if (e.code === "signIn") throw e;
+  }
+  const [liked] = await likedIds();
+  if (liked) return String(liked);
+  fail("unavailable", "心动模式需要先收藏或播放一些歌曲");
+}
+
+export async function station({ id: value = "", seed = "" }) {
+  if (String(value).split(":")[0] !== HEARTBEAT) fail("unsupported", "不支持这个电台");
+  const user = requireAccount();
+  const explicit = Boolean(seed);
+  const start = seed ? id(seed) : await heartbeatSeed();
+  const playlistId = await likedPlaylistId(user);
+  if (!playlistId) fail("unavailable", "心动模式需要先收藏或播放一些歌曲");
+  const j = await api("/api/playmode/intelligence/list", {
+    songId: start, type: "fromPlayOne", playlistId, startMusicId: start, count: 100,
+  });
+  const seen = new Set([start]);
+  const tracks = [];
+  // seed 放队首：宿主换队列时看到队首正是正在播放的歌，会接着播完它而不是重新加载；
+  // 续批时 seed 是队列最后一首，宿主追加时按 key 去重。
+  if (explicit) {
+    try {
+      const [lead] = await details([start]);
+      if (lead && !lead.unavailable) tracks.push(lead);
+    } catch (e) {
+      if (e.code === "signIn") throw e;
+    }
+  }
+  for (const item of j.data || []) {
+    const song = item?.songInfo;
+    if (!song?.id || seen.has(String(song.id))) continue;
+    seen.add(String(song.id));
+    tracks.push(model.track(song, song.privilege));
+  }
+  if (!tracks.length) fail("unavailable", "心动模式暂时没有可推荐的歌曲");
+  return { tracks, more: true };
+}
+
 export async function home() {
   const j = await api("/api/personalized/playlist", { limit: 24, total: true, n: 1000 });
   const sections = [];
-  if (hasSession()) sections.push({ title: t("每日推荐"), links: [{ title: t("每日推荐歌曲"), page: "daily", subtitle: t("根据你的听歌喜好更新") }] });
+  if (hasSession()) {
+    // 宿主把 modes 画成首页大卡/小行。心动模式放第一个，后面跟我喜欢的音乐和最近播放。
+    const modes = [{ title: t("心动模式"), subtitle: t("接着当前歌曲继续推荐"), station: HEARTBEAT }];
+    const account = store.get("account");
+    if (account?.id) {
+      try {
+        const listId = await likedPlaylistId(account);
+        if (listId) modes.push({ title: t("我喜欢的音乐"), subtitle: t("从你收藏的歌曲继续"), playlist: listId });
+      } catch (_) { /* 取不到就不放这一项 */ }
+    }
+    try {
+      const tracks = (await recent()).slice(0, 50);
+      if (tracks.length) modes.push({ title: t("最近播放"), subtitle: t("接着上次的收听"), tracks });
+    } catch (_) { /* 取不到就不放这一项 */ }
+    sections.push({ style: "modes", modes });
+    sections.push({ title: t("每日推荐"), links: [{ title: t("每日推荐歌曲"), page: "daily", subtitle: t("根据你的听歌喜好更新") }] });
+  }
   sections.push({ title: t("推荐歌单"), style: "shelf", playlists: (j.result || []).map((x) => model.playlist(x, currentId())) });
   sections.push({ title: t("发现音乐"), links: [{ title: t("排行榜"), page: "charts" }, { title: t("最新专辑"), page: "new-albums" }, { title: t("热门歌单"), page: "playlists:全部:0" }] });
   return { title: t("网易云音乐"), sections };
@@ -344,10 +477,14 @@ export async function detail(value) {
 }
 
 export function trackMenu() {
-  return [{ id: "open-netease", title: t("在网易云音乐网页打开") }];
+  return [
+    { id: "heartbeat", title: t("从这里开始心动模式") },
+    { id: "open-netease", title: t("在网易云音乐网页打开") },
+  ];
 }
 
 export function menuAction({ id: action, track }) {
+  if (action === "heartbeat") return { station: { id: HEARTBEAT, seed: id(track?.id) } };
   if (action !== "open-netease") fail("unsupported", "未知菜单操作");
   host.openURL(`https://music.163.com/song?id=${id(track.id)}`);
   return {};

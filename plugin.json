@@ -1,7 +1,7 @@
 {
   "id": "multisource",
   "name": "小林的音源扩展",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "author": "Linmord",
   "repository": "https://github.com/Linmord/ypm-plugin-lingaiyuelx",
   "minAppVersion": "3.0.0",

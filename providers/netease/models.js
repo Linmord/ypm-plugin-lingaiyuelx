@@ -5,6 +5,14 @@ const sid = (x) => x == null ? "" : String(x);
 const image = (x) => String(x || "").replace(/^http:\/\//, "https://");
 const date = (x) => x > 0 ? new Date(x).toISOString().slice(0, 10) : "";
 
+/** 收藏时间：毫秒时间戳转 ISO；无效值返回空串，由界面决定怎么显示 */
+export function timestamp(x) {
+  const n = Number(x);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  const d = new Date(n);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}
+
 export function artist(x = {}) {
   return { id: sid(x.id), name: x.name || t("未知歌手"), imageUrl: image(x.picUrl || x.img1v1Url) };
 }

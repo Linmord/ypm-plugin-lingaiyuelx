@@ -107,5 +107,14 @@
   "分类": "Categories",
   "QQ 音乐": "QQ 音乐",
   "该音源不支持多账号": "This source does not support multiple accounts",
-  "QQ音乐服务暂时不可用（HTTP {status}）": "QQ音乐服务暂时不可用（HTTP {status}）"
+  "QQ音乐服务暂时不可用（HTTP {status}）": "QQ音乐服务暂时不可用（HTTP {status}）",
+  "心动模式": "Heartbeat mode",
+  "接着当前歌曲继续推荐": "Keeps recommending from the current song",
+  "从这里开始心动模式": "Start heartbeat mode from here",
+  "我喜欢的音乐": "Liked songs",
+  "从你收藏的歌曲继续": "Continue from your liked songs",
+  "最近播放": "Recently played",
+  "接着上次的收听": "Pick up where you left off",
+  "心动模式需要先收藏或播放一些歌曲": "Heartbeat mode needs some liked or played songs first",
+  "心动模式暂时没有可推荐的歌曲": "Heartbeat mode has no recommendations right now"
 }
