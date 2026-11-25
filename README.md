@@ -9,6 +9,10 @@ YesPlayMusic 3.0 插件。把网易云音乐和 QQ 音乐合成一个入口，�
 
 需要 YesPlayMusic 3.0.0 或更高。
 
+Web 管理控制台需要 **Node.js 18+**（[下载](https://nodejs.org/)）。没装 Node 时插件本身照常工作，只是控制台起不来，账号管理和音源导入用不了。
+
+可用洛雪音源仓库：[pdone/lx-music-source](https://github.com/pdone/lx-music-source)
+
 ![播放展示](docs/screenshot.png)
 
 播放器、管理控制台与回落日志同屏：官方灰歌时由落雪音源取址，日志可见命中过程。
