@@ -502,3 +502,15 @@ export function menuAction(args) {
   const { provider, api } = target(args?.track?.id);
   return api.menuAction ? api.menuAction(args) : {};
 }
+
+/**
+ * 电台（心动模式）下一批歌。宿主按 Mode.station 或 menuAction 返回的 station 调用。
+ * 只认网易云的电台 id；其他音源没有电台，直接交给当前音源判断。
+ */
+export async function station({ id: value = "", seed = "" } = {}) {
+  const head = String(value || "").split(":")[0];
+  const name = PROVIDERS.includes(head) ? head : PRIMARY;
+  const api = registry[name];
+  if (!api || typeof api.station !== "function") throw Object.assign(new Error("这个音源没有电台"), { code: "unsupported" });
+  return api.station({ id: value, seed });
+}
