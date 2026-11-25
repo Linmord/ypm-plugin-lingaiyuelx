@@ -1,0 +1,13 @@
+# 构建产物
+dist/
+*.zip
+
+# 测试与临时
+test/
+*.bak
+_tmp*
+_*.mjs
+
+# 系统
+.DS_Store
+Thumbs.db

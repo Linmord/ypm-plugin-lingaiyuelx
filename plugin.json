@@ -1,0 +1,53 @@
+{
+  "id": "multisource",
+  "name": "小林的音源扩展",
+  "version": "0.1.0",
+  "author": "Linmord",
+  "repository": "https://github.com/Linmord/ypm-plugin-lingaiyuelx",
+  "minAppVersion": "3.0.0",
+  "description": "小林的音源扩展 · 引入多平台用户联网数据与三方音源能力 · 控制台 127.0.0.1:47800",
+  "main": "index.js",
+  "icon": "icon.png",
+  "playback": "stream",
+  "permissions": {
+    "network": [
+      "interfacepc.music.163.com",
+      "music.163.com",
+      "u.y.qq.com",
+      "c.y.qq.com",
+      "y.qq.com",
+      "y.gtimg.cn",
+      "*.qqmusic.qq.com",
+      "ssl.ptlogin2.qq.com",
+      "ssl.ptlogin2.graph.qq.com",
+      "graph.qq.com",
+      "xui.ptlogin2.qq.com",
+      "open.weixin.qq.com",
+      "lp.open.weixin.qq.com",
+      "*"
+    ]
+  },
+  "navigation": [
+    {
+      "builtin": "home"
+    },
+    {
+      "builtin": "liked"
+    },
+    {
+      "builtin": "savedAlbums"
+    },
+    {
+      "title": "排行榜",
+      "page": "charts"
+    }
+  ],
+  "settings": [
+    {
+      "key": "fallback",
+      "label": "洛雪音源",
+      "type": "boolean",
+      "help": "官方拿不到音频时，用导入的洛雪音源取址。账号、音源、音质在控制台 127.0.0.1:47800 管理。"
+    }
+  ]
+}
