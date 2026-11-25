@@ -374,14 +374,24 @@ export async function home() {
       try {
         const listId = await likedPlaylistId(account);
         if (listId) {
-          // 宿主的 Mode 卡片只认 imageUrl，playlist id 它不一定去查封面，
-          // 所以这里把歌单封面一起带上。
+          // 宿主大卡（_CoversHero）优先用 tracks 的封面：
+          // 传前几首收藏的歌，封面跟着收藏变化，比静态歌单封面鲜活；
+        // playlist 也要传——点卡片进歌单页，播放按钮播整个歌单。
           let cover = "";
-            // playlist/detail 的 coverImgUrl 可能 404（CDN 路径失效），
-            // 改用歌单前几首歌的专辑封面，必然有效。
+          let sample = [];
+          try {
             const d = await api("/api/v6/playlist/detail", { id: listId, n: 3 });
-            cover = d.playlist?.tracks?.[0]?.al?.picUrl || d.playlist?.coverImgUrl || "";
-          modes.push({ title: t("我喜欢的音乐"), subtitle: t("从你收藏的歌曲继续"), playlist: listId, ...(cover ? { imageUrl: cover } : {}) });
+            const pl = d.playlist || {};
+            sample = (pl.tracks || []).slice(0, 3);
+            cover = sample[0]?.al?.picUrl || pl.coverImgUrl || "";
+          } catch (_) { /* 拿不到就只传 playlist id */ }
+          modes.push({
+            title: t("我喜欢的音乐"),
+            subtitle: t("从你收藏的歌曲继续"),
+            playlist: listId,
+            ...(sample.length ? { tracks: sample.map(model.track) } : {}),
+            ...(cover ? { imageUrl: cover } : {}),
+          });
         }
       } catch (_) { /* 取不到就不放这一项 */ }
     }
