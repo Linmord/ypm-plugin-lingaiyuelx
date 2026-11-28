@@ -16,8 +16,9 @@ files = [root / name for name in [
     'LICENSE-NETEASE', 'LICENSE-QQMUSIC', 'THIRD_PARTY_MIT_LICENSE',
     'README.md',
 ]]
+files.extend(p for p in root.glob('RELEASE-*.md') if p.is_file())
 for directory in ['locales', 'shared', 'providers', 'console', 'docs']:
-    files.extend(p for p in (root / directory).rglob('*') if p.is_file())
+    files.extend(p for p in (root / directory).rglob('*') if p.is_file() and p.suffix != '.bak')
 
 missing = [p for p in files if not p.exists()]
 if missing:

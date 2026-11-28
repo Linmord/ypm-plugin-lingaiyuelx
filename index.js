@@ -41,6 +41,21 @@ const enabled = () => {
   return raw === 'true' || raw === '1';
 };
 
+/** 音质：插件设置面板的全局项优先，其次控制台按平台存的项，都没有就是最好音质 */
+const QUALITY_LEVELS = ['standard', 'high', 'lossless', 'hires'];
+function readQuality(provider, fallback = '') {
+  const known = (value) => (QUALITY_LEVELS.includes(value) ? value : '');
+  try {
+    if (typeof host.setting === 'function') {
+      const global = known(host.setting('quality'));
+      if (global) return global;
+      const own = known(host.setting(provider + ':quality'));
+      if (own) return own;
+    }
+  } catch (_) { /* 设置读不到就用最好音质 */ }
+  return known(fallback) || 'hires';
+}
+
 // 音源集合固定为全部已登录的音源：没登录的那个在调用时会抛错并被跳过，
 // 所以不需要额外的开关让用户勾选。
 
@@ -421,12 +436,12 @@ export async function stream({ id: value, quality = 'high' }) {
     throw e;
   }
 
-  /** 用当前平台的官方 ID 直接向落雪音源要地址 */
+  /** 用当前平台的官方 ID 直接向洛雪音源要地址 */
   async function tryLuoxueWithId(provider, id, quality) {
     if (!luoxue.listScripts().length) return null;
     const detail = await describe(provider, id).catch(() => null);
     if (!detail) return null;
-    // 落雪音源的平台代号：网易云 wy / QQ tx / 酷我 kw / 酷狗 kg
+    // 洛雪音源的平台代号：网易云 wy / QQ tx / 酷我 kw / 酷狗 kg
     const code = { netease: 'wy', qq: 'tx' }[provider];
     if (!code) return null;
     const musicInfo = {
@@ -436,10 +451,27 @@ export async function stream({ id: value, quality = 'high' }) {
       HQFileHash: '', SQFileHash: '',
       source: code,
     };
-    const hit = await luoxue.resolveUrlWithId({ musicInfo, source: code, quality: '320k' });
+    // 回落也要跟随设置：洛雪按 128k / 320k / flac / flac24bit 分档，
+    // 以前写死 320k，等于把用户选的 Hi-Res 悄悄降级。
+    const band = {
+      standard: '128k',
+      high: '320k',
+      lossless: 'flac',
+      hires: 'flac24bit',
+    }[readQuality(provider, quality)] || '320k';
+    const hit = await luoxue.resolveUrlWithId({ musicInfo, source: code, quality: band });
     if (!hit) return null;
-    console.warn('[fallback] ' + detail.title + ' 用官方 ID 从「' + hit.from + '」取到地址');
-    return { url: hit.url, type: 'mp3', quality: 'high', bitRate: 320000 };
+    console.warn('[fallback] ' + detail.title + ' 用官方 ID 从「' + hit.from + '」取到地址（' + band + '）');
+    // 按实际拿到的地址回报：脚本给 flac 时不能再写 mp3/320k，否则界面显示的是假的
+    const ext = (String(hit.url).split('?')[0].match(/\.(flac|mp3|m4a|ogg|aac)$/i) || [])[1] || '';
+    const type = ext ? ext.toLowerCase() : 'mp3';
+    const lossless = type === 'flac';
+    return {
+      url: hit.url,
+      type,
+      quality: lossless ? (band === 'flac24bit' ? 'hires' : 'lossless') : (band === '128k' ? 'standard' : 'high'),
+      bitRate: lossless ? (band === 'flac24bit' ? 9216000 : 1411200) : (band === '128k' ? 128000 : 320000),
+    };
   }
 }
 
@@ -457,8 +489,8 @@ async function describe(provider, id) {
 
 /** 账号管理：给控制台用，宿主 UI 不调用 */
 
-/** 落雪音源管理：导入 / 列出 / 删除，由控制台调用 */
-export function importSource({ name, source }) {
+/** 洛雪音源管理：导入 / 列出 / 删除，由控制台调用 */
+export async function importSource({ name, source }) {
   return luoxue.importScript(name, source);
 }
 export async function importSourceFromUrl({ name, url }) {

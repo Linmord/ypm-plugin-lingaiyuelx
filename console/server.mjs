@@ -4,11 +4,14 @@
 // 为什么需要它：YesPlayMusic 宿主只有一个账号槽位，两个音源的登录无法在应用内切换。
 // 插件能访问 127.0.0.1（已实测），所以把账号管理搬到本地网页，直接读写插件的 storage.json。
 import http from 'node:http';
+import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
 import { installHost } from './host-shim.mjs';
+import { manualCommand, planLogWindow } from './logcmd.mjs';
+import { withRemoved } from '../shared/accounts.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -284,6 +287,58 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    if (url.pathname === '/api/debug/logs' && req.method === 'POST') {
+      // 宿主没给插件设置按钮的控件，但用户就在电脑前：替他弹一个终端跟踪日志最省事。
+      // Windows 用 PowerShell，macOS 用自带 Terminal，Linux 依次试常见终端。
+      const logFile = path.join(ROOT, 'logs', 'app.log');
+      const plan = planLogWindow(process.platform, logFile);
+      const attempts = [plan, ...(plan.fallbacks || [])];
+      const failures = [];
+
+      for (const attempt of attempts) {
+        const started = await new Promise((resolve) => {
+          let settled = false;
+          let child;
+          try {
+            child = spawn(attempt.cmd, attempt.args, { detached: true, stdio: 'ignore', windowsHide: false });
+          } catch (e) {
+            return resolve({ ok: false, error: e && e.message ? e.message : String(e) });
+          }
+          child.once('error', (e) => {
+            if (settled) return;
+            settled = true;
+            resolve({ ok: false, error: e && e.message ? e.message : String(e) });
+          });
+          child.once('spawn', () => {
+            if (settled) return;
+            settled = true;
+            child.unref();
+            resolve({ ok: true });
+          });
+          // 兜底：个别平台不给 spawn 事件，120ms 内没报错就当起来了
+          setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            child.unref();
+            resolve({ ok: true });
+          }, 120);
+        });
+
+        if (started.ok) {
+          log('已打开日志窗口（' + attempt.via + '）');
+          return json(res, 200, { ok: true, via: attempt.via, exists: existsSync(logFile), path: logFile });
+        }
+        failures.push(attempt.via + ': ' + started.error);
+      }
+
+      return json(res, 500, {
+        error: '没有找到可用的终端，请手动在终端里执行下面的命令',
+        command: manualCommand(process.platform, logFile),
+        tried: attempts.map((a) => a.via),
+        failures,
+      });
+    }
+
     if (url.pathname === '/api/capabilities') {
       // 只对 qq provider 探一次：确认插件运行环境能不能执行导入的脚本
       const mod = await provider('qq');
@@ -303,12 +358,13 @@ const server = http.createServer(async (req, res) => {
       const api = await import(pathToFileURL(path.join(PLUGIN_DIR, 'index.js')).href);
       if (typeof api.importSource !== 'function') return json(res, 400, { error: '当前插件版本不支持导入音源' });
       try {
-        const info = api.importSource({ name, source });
-        log('导入落雪音源「' + info.name + '」支持: ' + info.sources.join(','));
+        // 异步初始化的脚本要等它 send(inited)，所以这里 await
+        const info = await api.importSource({ name, source });
+        log('导入洛雪音源「' + info.name + '」支持: ' + info.sources.join(','));
         return json(res, 200, { ok: true, info, scripts: api.listSources() });
       } catch (e) {
         const message = e && e.message ? e.message : String(e);
-        log('导入落雪音源失败: ' + message);
+        log('导入洛雪音源失败: ' + message);
         return json(res, 400, { error: message });
       }
     }
@@ -392,7 +448,22 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/accounts/remove' && req.method === 'POST') {
       const { id } = await readBody(req);
       const mod = await provider('qq');
-      return json(res, 200, { ok: true, accounts: mod.removeAccount(id) });
+      const accounts = mod.removeAccount(id);
+      // 只写 storage 是不够的：宿主持有一份内存副本，几秒后就把整表写回磁盘，
+      // 删掉的账号会复活。所以在 settings.json 里留一条墓碑（它只在插件加载时读一次），
+      // 插件下次加载看到墓碑会把这些账号从自己的存储里清掉。
+      const settings = readSettings();
+      writeSettings({ ...settings, removedAccounts: withRemoved(settings.removedAccounts, 'qq', String(id)) });
+      log('删除账号: ' + id);
+      return json(res, 200, { ok: true, accounts });
+    }
+
+    if (url.pathname === '/api/accounts/verify' && req.method === 'POST') {
+      const mod = await provider('qq');
+      const accounts = typeof mod.verifyAccounts === 'function' ? await mod.verifyAccounts() : mod.accounts_();
+      const dead = accounts.filter((a) => a.invalid).length;
+      log('检查登录状态: ' + accounts.length + ' 个账号，' + dead + ' 个失效');
+      return json(res, 200, { ok: true, accounts });
     }
 
     if (url.pathname === '/api/loginMode' && req.method === 'POST') {

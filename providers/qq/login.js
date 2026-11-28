@@ -216,6 +216,8 @@ export async function account() {
   // 没设置就沿用控制台写入的 active 指针。
   // 不能回落到 session —— signOut 只是把 active 清空，session 里还留着凭据，
   // 一回落就等于「退出登录后刷新又登上了」。
+  // 先按墓碑清理一遍：宿主内存里可能还留着控制台删掉的账号
+  accounts.purge('qq');
   const chosen = typeof host.setting === 'function' ? host.setting('qq:activeAccount') : '';
   const all = accounts.list('qq');
   const saved = (chosen && all.find((a) => a.id === String(chosen))) || accounts.current('qq');
@@ -224,21 +226,32 @@ export async function account() {
   const generation = epoch();
   if (!credential || !credential.musickey) return null;
   const check = () => { if (generation !== epoch()) fail('signIn', '登录状态已变化，请重新扫码'); };
-  try { return await verify(credential, check); }
-  catch (e) {
+  const revive = (target) => {
+    // 登录态恢复正常：把「已失效」标记摘掉，控制台的红色提示也就没了
+    if (target && (target.invalid || target.invalidAt)) {
+      accounts.upsert('qq', { ...target, invalid: false, invalidAt: 0 }, { keepActive: true });
+    }
+  };
+  try {
+    const user = await verify(credential, check);
+    revive(saved);
+    return user;
+  } catch (e) {
     if (e.code !== 'signIn') throw e;
     if (credential.refresh_token && credential.refresh_key) {
       try {
         const data = await cgi('music.login.LoginServer', 'Login', { ...credential, musicid: credential.uin, str_musicid: credential.uin, loginMode: 2 }, { platform: 'android', session: credential, comm: { tmeLoginType: credential.loginType || 6 } });
         check();
         const fresh = credentialOf(data, credential.uin, credential.loginType, credential.euin);
-        if (saved) accounts.upsert('qq', { ...saved, credential: fresh });
+        if (saved) accounts.upsert('qq', { ...saved, credential: fresh, invalid: false, invalidAt: 0 }, { keepActive: true });
         return await verify(fresh, check);
       } catch (error) { if (error.code !== 'signIn') throw error; }
     }
-    // 只是这一个账号失效，不要清掉整个账号表
-    if (generation === epoch() && saved) accounts.remove('qq', saved.id);
-    else if (generation === epoch()) clearSession();
+    // 凭据失效：不删账号，只标记，控制台会显示「登录已失效」，
+    // 用户还能看到它、重新登录一次就能接着用（删不删由用户决定）。
+    if (generation === epoch() && saved) {
+      accounts.upsert('qq', { ...saved, invalid: true, invalidAt: Date.now() }, { keepActive: true });
+    } else if (generation === epoch()) clearSession();
     return null;
   }
 }
@@ -259,7 +272,31 @@ export function clearAll() {
 }
 
 /** 账号管理：列出 / 切换 / 删除 */
-export function accounts_() { return accounts.publicView('qq'); }
+export function accounts_() {
+  // 宿主每隔几秒会把内存里的 storage 整表写回磁盘，控制台删掉的账号会被写回来；
+  // 这里按 settings 里的墓碑再清一遍，宿主内存副本也就干净了。
+  accounts.purge('qq');
+  return accounts.publicView('qq');
+}
+
+/** 逐个检查账号登录态，更新「已失效」标记（控制台的「检查登录状态」用） */
+export async function verifyAccounts() {
+  const generation = epoch();
+  for (const saved of accounts.list('qq')) {
+    if (generation !== epoch()) break;
+    if (!saved.credential || !saved.credential.musickey) {
+      accounts.upsert('qq', { ...saved, invalid: true, invalidAt: Date.now() }, { keepActive: true });
+      continue;
+    }
+    try {
+      const user = await verify(saved.credential, () => {});
+      accounts.upsert('qq', { ...saved, name: user.name || saved.name, imageUrl: user.imageUrl || saved.imageUrl || '', invalid: false, invalidAt: 0 }, { keepActive: true });
+    } catch (_) {
+      accounts.upsert('qq', { ...saved, invalid: true, invalidAt: Date.now() }, { keepActive: true });
+    }
+  }
+  return accounts.publicView('qq');
+}
 export function switchAccount(id) {
   const found = accounts.list('qq').find((a) => a.id === String(id));
   if (!found) fail('unavailable', '找不到这个账号');

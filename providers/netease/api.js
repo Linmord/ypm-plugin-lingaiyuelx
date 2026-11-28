@@ -1,5 +1,5 @@
 import { api, fail, id, hasSession, requireAccount, resetSession, verify } from "./client.js";
-import { scoped, setting as readSetting } from '../../shared/storage.js';
+import { scoped, setting as readSetting, qualityOf } from '../../shared/storage.js';
 const store = scoped('netease');
 import * as model from "./models.js";
 import { t } from "./i18n.js";
@@ -457,7 +457,7 @@ export async function browse({ page = "" }) {
 export async function stream({ id: value, quality = "high" }) {
   const levels = { hires: "hires", lossless: "lossless", high: "exhigh", standard: "standard" };
   const order = Object.keys(levels);
-  const setting = readSetting('netease:quality');
+  const setting = qualityOf('netease');
   // 插件设置优先于宿主的默认档位；空设置保留原来的跟随行为。
   const selected = order.includes(setting) ? setting : order.includes(quality) ? quality : "high";
   const songId = id(value);

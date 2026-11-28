@@ -1,6 +1,6 @@
-// 按歌名到各平台搜 ID，供落雪音源取址用。
+﻿// 按歌名到各平台搜 ID，供洛雪音源取址用。
 //
-// 为什么需要它：落雪音源的 musicUrl 接口要的是平台自己的歌曲 ID
+// 为什么需要它：洛雪音源的 musicUrl 接口要的是平台自己的歌曲 ID
 // （酷我 MUSICRID、酷狗 FileHash、QQ songmid），不是歌名。
 // 回落场景只有歌名+时长，所以得先搜出候选，挑最像的，再喂给脚本。
 //
@@ -66,7 +66,7 @@ async function searchKuwo(title, artist) {
   if (!r.ok) throw new Error('kuwo ' + r.status);
   const body = looseJson(await r.text());
   return (body.abslist || []).map((x) => ({
-    // 落雪脚本把 rid 直接拼进 URL，酷我要纯数字，MUSIC_ 前缀会报 parameter error
+    // 洛雪脚本把 rid 直接拼进 URL，酷我要纯数字，MUSIC_ 前缀会报 parameter error
     id: String(x.MUSICRID || '').replace(/^MUSIC_/, ''),
     title: plain(decode(x.SONGNAME)),
     artist: plain(decode(x.ARTIST)),
@@ -87,7 +87,7 @@ async function searchKugou(title, artist) {
     title: plain(decode(x.SongName)),
     artist: plain(decode(x.SingerName)),
     duration: Number(x.Duration) || 0,
-    // 落雪脚本会优先读 SQFileHash / HQFileHash
+    // 洛雪脚本会优先读 SQFileHash / HQFileHash
     SQFileHash: String(x.SQFileHash || ''),
     HQFileHash: String(x.HQFileHash || ''),
     FileHash: String(x.FileHash || ''),
@@ -114,7 +114,7 @@ async function searchQq(title, artist) {
 const SEARCHERS = { kw: searchKuwo, kg: searchKugou, tx: searchQq };
 
 /**
- * 搜出最匹配的候选，返回 { source, musicInfo } 供落雪脚本使用。
+ * 搜出最匹配的候选，返回 { source, musicInfo } 供洛雪脚本使用。
  * @returns {Promise<{source: string, item: object} | null>}
  */
 export async function findId({ title, artist, duration, sources = ['kw', 'kg', 'tx'] }) {

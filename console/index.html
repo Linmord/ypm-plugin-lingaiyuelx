@@ -124,6 +124,8 @@
     <div class="row" style="margin-bottom:6px"><strong>插件设置</strong></div>
     <div id="settings"></div>
     <p class="hint">这些设置与播放器内「设置 → 插件 → 小林的音源扩展」是同一份数据，改任一处都会生效。</p>
+    <div class="btn-row"><button id="btn-logs">查看宿主日志</button></div>
+    <p class="hint">会在桌面弹出一个终端窗口，实时跟踪宿主日志 <code>logs/app.log</code>：Windows 用 PowerShell，macOS 用「终端」，Linux 试常见终端（gnome-terminal / konsole / xterm 等）。</p>
   </div>
 
   <footer class="page-footer">
@@ -176,17 +178,22 @@ function accountList(p) {
   if (!p.accounts || p.accounts.length === 0) return '';
   const rows = p.accounts.map((a) => {
     const avatar = a.imageUrl ? '<img src="' + esc(a.imageUrl) + '" alt="">' : esc((a.name || '?').slice(0, 1));
-    const tag = a.active ? '<span class="badge on">当前</span>' : '';
+    const tag = (a.active ? '<span class="badge on">当前</span>' : '') +
+      (a.invalid ? '<span class="badge err">登录已失效</span>' : '');
     const btn = a.active ? '' : '<button data-act="switch" data-id="' + esc(a.id) + '">切换</button>';
+    // 失效的账号只剩个名字，重新登录一次（同一个帐号）就会覆盖掉旧凭据、标记自动清除
+    const hint = a.invalid ? ' · 凭据已过期，重新登录这个帐号即可恢复' : '';
     return '<div class="acc">' +
       '<div class="avatar sm">' + avatar + '</div>' +
       '<div class="grow"><div class="name">' + esc(a.name) + tag + '</div>' +
-      '<div class="meta">' + esc(loginTypeLabel(a.loginType)) + ' · ID ' + esc(a.id) + '</div></div>' +
+      '<div class="meta">' + esc(loginTypeLabel(a.loginType)) + ' · ID ' + esc(a.id) + esc(hint) + '</div></div>' +
       btn +
       '<button data-act="remove-acc" data-id="' + esc(a.id) + '" title="删除这个账号">删</button>' +
     '</div>';
   }).join('');
-  return '<div class="acc-list"><div class="acc-title">已保存的账号</div>' + rows + '</div>';
+  return '<div class="acc-list"><div class="acc-title">已保存的账号' +
+    '<button data-act="verify-acc" style="margin-left:8px;padding:2px 8px;font-size:12px">检查登录状态</button>' +
+    '</div>' + rows + '</div>';
 }
 
 function loginTypeLabel(type) {
@@ -274,25 +281,25 @@ function luoxueBlock(scripts) {
         '<span class="drag">⋮⋮</span>' +
         '<button data-act="lx-remove" data-name="' + esc(s.name) + '">删</button></div>').join('')
     : '<div class="hint" style="margin:0">还没有导入音源</div>';
-  return '<div class="card"><div class="row" style="margin-bottom:6px"><strong>落雪音源导入</strong></div>' +
+  return '<div class="card"><div class="row" style="margin-bottom:6px"><strong>洛雪音源导入</strong></div>' +
     rows +
     '<div class="cf-row" style="margin-top:12px"><label>名字</label><input type="text" id="lx-name" placeholder="例如 星海音乐源" autocomplete="off"></div>' +
     '<div class="cf-row"><label>网络地址</label><input type="text" id="lx-url" placeholder="https://example.com/source.js" autocomplete="off"></div>' +
     '<div class="cf-row"><label>或文件</label><input type="file" id="lx-file" accept=".js,text/javascript"></div>' +
     (scripts.length > 1 ? '<div class="cf-hint">拖动排序：序号 1 的音源最先被尝试，灰歌回落时按这个顺序逐个试。</div>' : '') +
-    '<div class="cf-hint">填网络地址或选本地文件，二选一。需要是落雪音乐（lx-music）格式的 .js 音源。</div>' +
+    '<div class="cf-hint">填网络地址或选本地文件，二选一。需要是洛雪音乐（lx-music）格式的 .js 音源。</div>' +
     '<div class="cf-actions"><button class="primary" data-act="lx-import">导入</button></div>' +
   '</div>';
 }
 
 function settingsBlock(s) {
   let html = '';
-  // 音质合并成一项：两个音源各存一份，但只让用户选一次
-  const q = s['qq:quality'] || s['netease:quality'] || '';
+  // 音质是全局项：插件设置的 quality 优先，老版本按平台存的也认
+  const q = s.quality || s['qq:quality'] || s['netease:quality'] || 'hires';
   html += settingRow('quality', '音质',
-    '优先使用所选档位，不可用时自动降低；两个音源共用这一项',
+    '两个音源共用这一项，默认最好音质；在插件设置里改立即生效，在这里改需要重载插件（或重启 YesPlayMusic）',
     '<select data-set="quality">' +
-      [['', '跟随播放器'], ['standard', '标准'], ['high', '高音质'], ['lossless', '无损'], ['hires', 'Hi-Res']].map(([v, l]) =>
+      [['hires', '最好音质（无损 / Hi-Res）'], ['lossless', '无损'], ['high', '高音质 320k'], ['standard', '标准 128k']].map(([v, l]) =>
         '<option value="' + v + '"' + (q === v ? ' selected' : '') + '>' + l + '</option>').join('') +
     '</select>');
 
@@ -449,6 +456,20 @@ async function refresh() {
   }
 }
 
+document.getElementById('btn-logs')?.addEventListener('click', async (e) => {
+  const logsBtn = e.currentTarget;
+  logsBtn.disabled = true;
+  try {
+    const r = await api('/api/debug/logs', { method: 'POST' });
+    const via = r && r.via ? '（' + r.via + '）' : '';
+    toast(r && r.exists === false ? '已打开窗口，但日志文件还不存在' + via : '已打开日志窗口' + via);
+  } catch (err) {
+    toast((err && err.message) || '打开失败');
+  } finally {
+    logsBtn.disabled = false;
+  }
+});
+
 document.addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;
@@ -537,10 +558,14 @@ document.addEventListener('click', async (e) => {
     } else if (act === 'switch') {
       await api('/api/accounts/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: btn.dataset.id }) });
       toast('已切换账号');
+    } else if (act === 'verify-acc') {
+      const data = await api('/api/accounts/verify', { method: 'POST' });
+      const dead = (data.accounts || []).filter((a) => a.invalid).length;
+      toast(dead ? dead + ' 个账号登录已失效，重新登录即可恢复' : '全部账号登录状态正常');
     } else if (act === 'remove-acc') {
-      if (!confirm('删除这个账号？凭据会被移除，需要重新扫码登录。')) { btn.disabled = false; return; }
+      if (!confirm('删除这个账号？凭据会被移除，需要重新扫码登录。\n\n注意：宿主会把自己的内存写回磁盘，删完要重新加载插件（或重启 YesPlayMusic）才会在应用里生效。')) { btn.disabled = false; return; }
       await api('/api/accounts/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: btn.dataset.id }) });
-      toast('已删除账号');
+      toast('已删除，重新加载插件后就不会再出现了');
     }
   } catch (err) {
     toast('失败：' + err.message);
@@ -551,7 +576,7 @@ document.addEventListener('click', async (e) => {
   await refresh();
 });
 
-// 落雪音源列表的拖拽排序（与上面的音源开关是两套）
+// 洛雪音源列表的拖拽排序（与上面的音源开关是两套）
 let lxDrag = null;
 document.addEventListener('dragstart', (e) => {
   const row = e.target.closest('.lx-row');
@@ -588,12 +613,12 @@ document.addEventListener('change', async (e) => {
   const sel = e.target.closest('select[data-set], input[data-set]');
   if (!sel) return;
   try {
-    // 音质是合并项，写两个音源的键
+    // 音质写全局键，同时保留两个平台各自的键（老数据、插件设置面板就认这几处）
     const patch = sel.dataset.set === 'quality'
-      ? { 'qq:quality': sel.value, 'netease:quality': sel.value }
+      ? { quality: sel.value, 'qq:quality': sel.value, 'netease:quality': sel.value }
       : { [sel.dataset.set]: sel.value };
     await api('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
-    toast('已保存');
+    toast(sel.dataset.set === 'quality' ? '已保存，需重载插件生效（在插件设置里改可立即生效）' : '已保存');
   } catch (err) {
     toast('保存失败：' + err.message);
   }

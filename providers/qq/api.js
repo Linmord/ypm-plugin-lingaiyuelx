@@ -1,12 +1,12 @@
 import * as accountStore from '../../shared/accounts.js';
 import { cgi, webGet, fail, guid, requireAccount, resourceId, session } from './client.js';
-import { scoped, setting as readSetting } from '../../shared/storage.js';
+import { scoped, setting as readSetting, qualityOf } from '../../shared/storage.js';
 const store = scoped('qq');
 import { t } from './i18n.js';
 import * as model from './models.js';
 import { lyricText } from './lyrics.js';
 // 显式导出，便于宿主安装前静态识别能力。
-export { account, signIn, signOut, clearAll, accounts_, switchAccount, removeAccount } from './login.js';
+export { account, signIn, signOut, clearAll, accounts_, switchAccount, removeAccount, verifyAccounts } from './login.js';
 
 /** 歌单最多返回多少首：一次给太多（比如 1240 首 / 575 KB）宿主会渲染到内存耗尽闪退 */
 const PLAYLIST_MAX = 300;
@@ -275,12 +275,17 @@ async function songDetail(id) {
 
 export async function stream({ id, quality = 'high' }) {
   const choices = ['standard', 'high', 'lossless'];
-  const setting = readSetting('qq:quality');
+  // 设置里有 hires：QQ 音乐的 Hi-Res 就是 F000 flac，没有更高的档，
+  // 所以直接按 lossless 处理，不能再静默退回 320k。
+  const normalize = (value) => (value === 'hires' ? 'lossless' : value);
+  const setting = normalize(qualityOf('qq'));
+  quality = normalize(quality);
   // 插件选择可以高于宿主默认的 high，不采用“音质上限”的限制方式。
   quality = choices.includes(setting) ? setting : choices.includes(quality) ? quality : 'high';
   const song = await songDetail(id);
   const mid = resourceId(song.mid || id), media = song.file?.media_mid;
-  const formats = quality === 'lossless' ? [['F000', '.flac', 'lossless', 0], ['M800', '.mp3', 'high', 320000], ['M500', '.mp3', 'standard', 128000]]
+  // 无损报 1411k：服务端不回码率，写 0 会让界面显示空码率（无损就是 16bit/44.1 的 1411kbps）
+  const formats = quality === 'lossless' ? [['F000', '.flac', 'lossless', 1411200], ['M800', '.mp3', 'high', 320000], ['M500', '.mp3', 'standard', 128000]]
     : quality === 'standard' ? [['M500', '.mp3', 'standard', 128000]] : [['M800', '.mp3', 'high', 320000], ['M500', '.mp3', 'standard', 128000]];
   const names = formats.map(([prefix, ext]) => `${prefix}${media ? resourceId(media) : mid + mid}${ext}`);
   const data = await cgi('music.vkey.GetVkey', 'UrlGetVkey', { filename: names, guid: guid(), songmid: names.map(() => mid), songtype: names.map(() => song.type || 0), uin: session().uin || '0', loginflag: session().musickey ? 1 : 0, platform: '20', ctx: 0 });
